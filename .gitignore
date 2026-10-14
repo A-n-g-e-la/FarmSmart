@@ -1,0 +1,24 @@
+# Local environment configuration; retain safe examples
+.env
+.env.*
+!.env.example
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Generated datasets
+/project/machineLearning/data/processed/
+generated_datasets/
