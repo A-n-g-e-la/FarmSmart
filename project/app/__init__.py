@@ -12,7 +12,7 @@ def create_app():
     if not app.secret_key:
         app.secret_key = secrets.token_hex(32)
 
-    # Register farmer registration routes; login is not implemented yet.
+    # Register farmer registration, backend login, protected home, and logout routes.
     app.register_blueprint(farmer_bp)
 
     return app

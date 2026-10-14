@@ -1,8 +1,10 @@
-import secrets
 import time
+from collections.abc import Mapping
 
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, flash, g, jsonify, redirect, render_template, request, session, url_for
 
+from app.security import csrf_token, farmer_required, valid_csrf
+from app.services.authentication_service import authenticate_farmer
 from app.services.registration_service import register_farmer
 
 
@@ -31,12 +33,8 @@ def register():
 
 
 def _form_csrf_token():
-    # Keep a short-lived random token in Flask's signed session, never in a URL.
-    issued = session.get("registration_csrf_issued", 0)
-    if not session.get("registration_csrf") or not 0 <= time.time() - issued < 3600:
-        session["registration_csrf"] = secrets.token_urlsafe(32)
-        session["registration_csrf_issued"] = time.time()
-    return session["registration_csrf"]
+    # Preserve registration token names and expiry through the shared helper.
+    return csrf_token("registration")
 
 
 @farmer_bp.route("/registration", methods=["GET", "POST"])
@@ -50,14 +48,7 @@ def registration_form():
             "first_name", "last_name", "phone_number", "location"
         )}
         submitted = request.form.get("csrf_token", "")
-        expected = session.get("registration_csrf", "")
-        issued = session.get("registration_csrf_issued", 0)
-        valid_csrf = (
-            bool(expected) and submitted.isascii() and len(submitted) == len(expected)
-            and secrets.compare_digest(submitted, expected)
-            and 0 <= time.time() - issued < 3600
-        )
-        if not valid_csrf:
+        if not valid_csrf("registration", submitted):
             errors["request"] = "Your form expired or could not be verified. Please try again."
             status = 400
         else:
@@ -80,3 +71,50 @@ def registration_form():
     )
     # Registration pages contain contact details and session-specific CSRF tokens.
     return response, status, {"Cache-Control": "no-store"}
+
+
+@farmer_bp.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        # Phase 3 can use this token in a form field or the X-CSRF-Token header.
+        return jsonify({"ok": True, "csrf_token": csrf_token("login")}), 200, {"Cache-Control": "no-store"}
+    if request.is_json:
+        data = request.get_json(silent=True)
+    elif request.mimetype in ("application/x-www-form-urlencoded", "multipart/form-data"):
+        data = request.form
+    else:
+        return jsonify({"ok": False, "code": "validation_error", "message": "Send JSON or form data."}), 415
+    if not isinstance(data, Mapping):
+        return jsonify({"ok": False, "code": "validation_error", "message": "Provide a credentials object."}), 400
+    token = request.headers.get("X-CSRF-Token") or data.get("csrf_token", "")
+    if not valid_csrf("login", token):
+        return jsonify({"ok": False, "code": "csrf_error", "message": "The request could not be verified."}), 400
+    # Discard previous identities and tokens before attempting account switching.
+    session.clear()
+    result = authenticate_farmer(data.get("phone_number"), data.get("password"))
+    if not result["ok"]:
+        result = dict(result, csrf_token=csrf_token("login"))
+        return jsonify(result), 401 if result["code"] == "invalid_credentials" else 503, {"Cache-Control": "no-store"}
+    session.permanent = True
+    session["user_id"] = result["identity"]["user_id"]
+    session["farmer_id"] = result["identity"]["farmer_id"]
+    session["authenticated_at"] = time.time()
+    return jsonify(dict(result, csrf_token=csrf_token("logout"))), 200, {"Cache-Control": "no-store"}
+
+
+@farmer_bp.get("/home")
+@farmer_required
+def home():
+    return jsonify({"ok": True, "message": "Farmer authentication confirmed.",
+                    "identity": g.farmer_identity, "csrf_token": csrf_token("logout")}), 200, {"Cache-Control": "no-store"}
+
+
+@farmer_bp.post("/logout")
+@farmer_required
+def logout():
+    data = request.get_json(silent=True) if request.is_json else request.form
+    token = request.headers.get("X-CSRF-Token") or (data.get("csrf_token", "") if isinstance(data, Mapping) else "")
+    if not valid_csrf("logout", token):
+        return jsonify({"ok": False, "code": "csrf_error", "message": "The request could not be verified."}), 400
+    session.clear()
+    return jsonify({"ok": True, "message": "Logged out successfully."}), 200, {"Cache-Control": "no-store"}
