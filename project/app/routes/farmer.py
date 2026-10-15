@@ -73,6 +73,12 @@ def registration_form():
     return response, status, {"Cache-Control": "no-store"}
 
 
+@farmer_bp.get("/login-page")
+def login_page():
+    # Keep HTML delivery separate from the existing JSON token/authentication API.
+    return render_template("farmer/login.html"), 200, {"Cache-Control": "no-store"}
+
+
 @farmer_bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
