@@ -96,9 +96,10 @@ class AuthenticationIntegrationTests(unittest.TestCase):
             self.assertNotIn(self.password_hash, str(dict(session)))
         home = self.client.get("/farmer/home")
         self.assertEqual(home.status_code, 200)
-        self.assertTrue(home.is_json)
-        self.assertEqual(home.json["identity"], response.json["identity"])
-        logout = self.client.post("/farmer/logout", headers={"X-CSRF-Token": home.json["csrf_token"]})
+        self.assertEqual(home.mimetype, "text/html")
+        self.assertIn("Welcome, farmer.", home.get_data(as_text=True))
+        # Login still supplies the logout token; the HTML dashboard has no logout UI yet.
+        logout = self.client.post("/farmer/logout", headers={"X-CSRF-Token": response.json["csrf_token"]})
         self.assertEqual(logout.status_code, 200)
         with self.client.session_transaction() as session:
             self.assertEqual(dict(session), {})

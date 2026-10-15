@@ -1,5 +1,6 @@
 import time
 import unittest
+from html.parser import HTMLParser
 from unittest.mock import MagicMock, patch
 
 import dotenv
@@ -9,6 +10,19 @@ from mysql.connector import Error
 with patch.object(dotenv, "load_dotenv", return_value=False):
     from app import create_app
     from app.services.authentication_service import get_active_farmer_identity
+
+
+class DashboardParser(HTMLParser):
+    def __init__(self, html):
+        super().__init__()
+        self.elements = {}
+        self.urls = []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        self.elements[attrs.get("id")] = (tag, attrs)
+        self.urls.extend(attrs[key] for key in ("href", "src", "action") if key in attrs)
 
 
 class FarmerSessionTests(unittest.TestCase):
@@ -88,9 +102,71 @@ class FarmerSessionTests(unittest.TestCase):
         self.login()
         response = self.client.get("/farmer/home")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json["identity"], self.identity)
+        self.assertEqual(response.mimetype, "text/html")
+        self.assertIn("Welcome, farmer.", response.get_data(as_text=True))
+        self.assertIn("Farmer dashboard", response.get_data(as_text=True))
         self.lookup.assert_called_once_with(41, 91)
         self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+    def test_dashboard_escapes_optional_revalidated_name(self):
+        self.login()
+        self.lookup.return_value = {"ok": True, "identity": dict(self.identity, first_name="<script>unsafe</script>")}
+        response = self.client.get("/farmer/home")
+        html = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Welcome, &lt;script&gt;unsafe&lt;/script&gt;.", html)
+        self.assertNotIn("<script>unsafe</script>", html)
+
+    def test_dashboard_provides_scoped_logout_token_without_identity_details(self):
+        token = self.login().json["csrf_token"]
+        html = self.client.get("/farmer/home").get_data(as_text=True)
+        page = DashboardParser(html)
+        self.assertEqual(page.elements["logout-csrf-token"][1]["value"], token)
+        self.assertEqual(page.elements["logout-button"][0], "button")
+        self.assertEqual(page.elements["logout-button"][1]["type"], "button")
+        self.assertTrue(all(token not in url for url in page.urls))
+        self.assertIn("/static/javascript/dashboard.js", page.urls)
+        for value in ("<form", "user_id", "farmer_id", "password_hash"):
+            self.assertNotIn(value, html)
+
+    def dashboard_logout_token(self):
+        html = self.client.get("/farmer/home").get_data(as_text=True)
+        return DashboardParser(html).elements["logout-csrf-token"][1]["value"]
+
+    def test_dashboard_token_logs_out_and_blocks_subsequent_access(self):
+        self.login()
+        token = self.dashboard_logout_token()
+        response = self.client.post("/farmer/logout", headers={"X-CSRF-Token": token})
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(response.json["ok"], True)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        with self.client.session_transaction() as session:
+            self.assertEqual(dict(session), {})
+        self.assertEqual(self.client.get("/farmer/home").status_code, 401)
+
+    def test_invalid_dashboard_logout_token_preserves_session(self):
+        self.login()
+        self.dashboard_logout_token()
+        response = self.client.post("/farmer/logout", headers={"X-CSRF-Token": "invalid-token"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json["code"], "csrf_error")
+        self.assertEqual(self.client.get("/farmer/home").status_code, 200)
+
+    def test_logout_authorization_failure_does_not_claim_success_or_clear_session(self):
+        self.login()
+        token = self.dashboard_logout_token()
+        self.lookup.return_value = {"ok": False, "code": "authentication_error"}
+        response = self.client.post("/farmer/logout", headers={"X-CSRF-Token": token})
+        self.assertEqual(response.status_code, 503)
+        self.assertIs(response.json["ok"], False)
+        with self.client.session_transaction() as session:
+            self.assertEqual(session["user_id"], 41)
+
+    def test_dashboard_asset_is_served(self):
+        response = self.client.get("/static/javascript/dashboard.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("/farmer/logout", response.get_data(as_text=True))
+        response.close()
 
     def test_unauthenticated_home(self):
         self.assertEqual(self.client.get("/farmer/home").status_code, 401)

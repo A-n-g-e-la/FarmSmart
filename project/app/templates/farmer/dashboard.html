@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Farmer Dashboard | FarmAdvis</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/registration.css') }}">
+  <script src="{{ url_for('static', filename='javascript/dashboard.js') }}" defer></script>
+</head>
+<body>
+  <header class="site-header"><span class="brand"><span class="brand-mark" aria-hidden="true">FA</span>FarmAdvis</span><span class="county">Uasin Gishu, Kenya</span></header>
+  <main class="registration-layout">
+    <section class="form-card" aria-labelledby="dashboard-title">
+      <p class="eyebrow">Farmer dashboard</p>
+      {# Jinja escapes an optional name; current authenticated identities contain IDs only. #}
+      <h1 id="dashboard-title">{% if farmer_name %}Welcome, {{ farmer_name }}.{% else %}Welcome, farmer.{% endif %}</h1>
+      <p>You are signed in to your FarmAdvis farmer account.</p>
+      {# Keep the session-bound token in the page, never in a request URL. #}
+      <input type="hidden" id="logout-csrf-token" value="{{ logout_csrf_token }}">
+      <p id="logout-error" class="notice error-summary" role="alert" tabindex="-1" hidden></p>
+      <p id="logout-status" role="status" aria-live="polite"></p>
+      <button type="button" id="logout-button" class="submit-button" disabled>Logout</button>
+      <noscript><p>Enable JavaScript to securely log out of your account.</p></noscript>
+    </section>
+  </main>
+  <footer class="site-footer">FarmAdvis &middot; Supporting maize farmers in Uasin Gishu</footer>
+</body>
+</html>

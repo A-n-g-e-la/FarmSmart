@@ -111,8 +111,11 @@ def login():
 @farmer_bp.get("/home")
 @farmer_required
 def home():
-    return jsonify({"ok": True, "message": "Farmer authentication confirmed.",
-                    "identity": g.farmer_identity, "csrf_token": csrf_token("logout")}), 200, {"Cache-Control": "no-store"}
+    # Use only the revalidated identity; do not add profile queries or session fields.
+    return render_template(
+        "farmer/dashboard.html", farmer_name=g.farmer_identity.get("first_name"),
+        logout_csrf_token=csrf_token("logout"),
+    ), 200, {"Cache-Control": "no-store"}
 
 
 @farmer_bp.post("/logout")

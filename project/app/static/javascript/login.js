@@ -103,7 +103,7 @@
         }
         succeeded = true;
         status.textContent = "Login successful. Opening your farmer home.";
-        // The protected destination currently returns JSON; a dashboard comes later.
+        // The protected destination renders the farmer dashboard after revalidation.
         window.location.assign("/farmer/home");
       }
     } catch {
