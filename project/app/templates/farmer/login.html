@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Farmer Login | FarmAdvis</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/registration.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
+  <script src="{{ url_for('static', filename='javascript/login.js') }}" defer></script>
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="{{ url_for('farmer.registration_form') }}"><span class="brand-mark" aria-hidden="true">FA</span>FarmAdvis</a><span class="county">Uasin Gishu, Kenya</span></header>
+  <main class="registration-layout login-layout">
+    <section class="introduction" aria-labelledby="intro-title">
+      <p class="eyebrow">For maize farmers</p>
+      <h1 id="intro-title">Your farm.<br>Your next step.</h1>
+      <p>Welcome back. Log in to your FarmAdvis farmer account.</p>
+      <div class="intro-note"><span class="note-line" aria-hidden="true"></span><p>Supporting farmers.<br><strong>Growing possibilities.</strong></p></div>
+    </section>
+    <section class="form-card" aria-labelledby="form-title">
+      <p class="eyebrow">Farmer login</p>
+      <h2 id="form-title">Welcome back</h2>
+      <p class="form-intro">Use the mobile number and password you registered with.</p>
+      <div id="login-error" class="notice error-summary" role="alert" tabindex="-1" hidden></div>
+      <form id="login-form" method="post" action="/farmer/login" novalidate>
+        <div class="field">
+          <label for="phone_number">Kenyan mobile number</label>
+          <input id="phone_number" name="phone_number" type="tel" inputmode="tel" autocomplete="username" placeholder="e.g. 0712 345 678" maxlength="40" required aria-describedby="phone-hint phone-error">
+          <p id="phone-hint" class="hint">Use a Kenyan mobile number starting with 07, 01, or +254.</p>
+          <p id="phone-error" class="field-error" hidden></p>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <div class="password-control">
+            <input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required aria-describedby="password-error">
+            <button id="password-toggle" class="password-toggle" type="button" aria-controls="password" aria-label="Show password" aria-pressed="false" hidden>Show</button>
+          </div>
+          <p id="password-error" class="field-error" hidden></p>
+        </div>
+        <button id="login-button" class="submit-button" type="submit" disabled>Log in <span aria-hidden="true">&rarr;</span></button>
+        <p id="login-status" class="hint login-status" role="status" aria-live="polite"></p>
+        <noscript><p class="notice">JavaScript is required for secure login. Please enable it and reload this page.</p></noscript>
+      </form>
+      <p class="form-footer">New to FarmAdvis? <a href="{{ url_for('farmer.registration_form') }}">Create a farmer account</a></p>
+    </section>
+  </main>
+  <footer class="site-footer">FarmAdvis &middot; Supporting maize farmers in Uasin Gishu</footer>
+</body>
+</html>

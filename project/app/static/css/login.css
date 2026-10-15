@@ -1,0 +1,7 @@
+/* Share registration typography, colors, controls, and responsive breakpoints. */
+.login-layout { align-items: start; }
+.login-status { min-height: 1.5em; text-align: center; }
+.login-layout .form-footer a { color: var(--green); font-weight: 650; text-underline-offset: 3px; }
+.login-layout .submit-button:disabled { opacity: .7; cursor: wait; }
+.login-layout .error-summary { overflow-wrap: anywhere; }
+@media (min-width: 850px) { .login-layout { padding-top: 64px; padding-bottom: 64px; } }
