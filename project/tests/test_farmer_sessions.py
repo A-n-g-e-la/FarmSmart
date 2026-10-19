@@ -17,12 +17,27 @@ class DashboardParser(HTMLParser):
         super().__init__()
         self.elements = {}
         self.urls = []
+        self.links = []
+        self.buttons = []
+        self.sections = []
+        self.headings = []
+        self.ids = []
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         self.elements[attrs.get("id")] = (tag, attrs)
         self.urls.extend(attrs[key] for key in ("href", "src", "action") if key in attrs)
+        if "id" in attrs:
+            self.ids.append(attrs["id"])
+        if tag == "a":
+            self.links.append(attrs)
+        if tag == "button":
+            self.buttons.append(attrs)
+        if tag == "section":
+            self.sections.append(attrs)
+        if tag in ("h1", "h2"):
+            self.headings.append(tag)
 
 
 class FarmerSessionTests(unittest.TestCase):
@@ -132,6 +147,55 @@ class FarmerSessionTests(unittest.TestCase):
     def dashboard_logout_token(self):
         html = self.client.get("/farmer/home").get_data(as_text=True)
         return DashboardParser(html).elements["logout-csrf-token"][1]["value"]
+
+    def test_dashboard_sections_have_accessible_labels_and_honest_empty_states(self):
+        self.login()
+        html = self.client.get("/farmer/home").get_data(as_text=True)
+        page = DashboardParser(html)
+        self.assertEqual(page.headings.count("h1"), 1)
+        self.assertEqual(len(page.ids), len(set(page.ids)))
+        expected_sections = {
+            "overview", "quick-actions", "farm-plots", "yield",
+            "finances", "fertilizer", "history",
+        }
+        self.assertEqual({section["id"] for section in page.sections}, expected_sections)
+        for section in page.sections:
+            heading = page.elements[section["aria-labelledby"]]
+            self.assertIn(heading[0], ("h1", "h2"))
+        for text in (
+            "Plot summary not available yet", "No predictions yet",
+            "No recommendations yet", "No prediction history yet",
+            "Production costs", "Revenue", "Profit", "Return on investment (ROI)",
+            "Not available yet", "Coming later: add a plot",
+        ):
+            self.assertIn(text, html)
+        # The layout must not imply that unavailable data has a measured value.
+        self.assertNotRegex(html, r"\d[\d,.]*\s*(?:kg|acres?|bags?|%|KES)")
+        self.assertNotIn("<canvas", html)
+        self.assertNotIn("chart.js", html.lower())
+
+    def test_dashboard_navigation_resolves_without_unimplemented_actions(self):
+        self.login()
+        page = DashboardParser(self.client.get("/farmer/home").get_data(as_text=True))
+        for link in page.links:
+            href = link["href"]
+            self.assertTrue(href.startswith("#"), href)
+            self.assertIn(href[1:], page.elements)
+            # Fragment targets can receive keyboard focus after navigation.
+            self.assertEqual(page.elements[href[1:]][1].get("tabindex"), "-1")
+        self.assertEqual([button["id"] for button in page.buttons], ["logout-button"])
+        self.assertIn("disabled", page.buttons[0])
+
+    def test_dashboard_assets_are_local_and_served(self):
+        self.login()
+        page = DashboardParser(self.client.get("/farmer/home").get_data(as_text=True))
+        assets = [url for url in page.urls if not url.startswith("#")]
+        self.assertIn("/static/css/dashboard.css", assets)
+        for url in assets:
+            self.assertTrue(url.startswith("/static/"), url)
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            response.close()
 
     def test_dashboard_token_logs_out_and_blocks_subsequent_access(self):
         self.login()

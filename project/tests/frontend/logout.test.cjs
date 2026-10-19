@@ -33,6 +33,20 @@ function setup(responses) {
 
 const response = (status, data) => ({ status, ok: status >= 200 && status < 300, json: async () => data });
 
+test("dashboard enables logout without fetching unavailable dashboard data", () => {
+  const app = setup([]);
+  assert.equal(app.elements["logout-button"].disabled, false);
+  assert.equal(app.calls.length, 0);
+  assert.deepEqual(app.redirects, []);
+});
+
+test("dashboard script safely exits on pages without a logout button", () => {
+  vm.runInNewContext(source, {
+    document: { getElementById: () => null },
+    fetch: () => assert.fail("No dashboard data requests should be made"),
+  });
+});
+
 test("confirmed logout sends same-origin POST with CSRF and opens the login page", async () => {
   const app = setup([response(200, { ok: true })]);
   await app.click();

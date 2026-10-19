@@ -5,24 +5,117 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Farmer Dashboard | FarmAdvis</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/registration.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
   <script src="{{ url_for('static', filename='javascript/dashboard.js') }}" defer></script>
 </head>
-<body>
-  <header class="site-header"><span class="brand"><span class="brand-mark" aria-hidden="true">FA</span>FarmAdvis</span><span class="county">Uasin Gishu, Kenya</span></header>
-  <main class="registration-layout">
-    <section class="form-card" aria-labelledby="dashboard-title">
-      <p class="eyebrow">Farmer dashboard</p>
-      {# Jinja escapes an optional name; current authenticated identities contain IDs only. #}
-      <h1 id="dashboard-title">{% if farmer_name %}Welcome, {{ farmer_name }}.{% else %}Welcome, farmer.{% endif %}</h1>
-      <p>You are signed in to your FarmAdvis farmer account.</p>
+<body class="dashboard-page">
+  <a class="skip-link" href="#main-content">Skip to dashboard</a>
+  <header class="site-header dashboard-header">
+    <a class="brand" href="#overview" aria-label="FarmAdvis dashboard"><span class="brand-mark" aria-hidden="true">FA</span>FarmAdvis</a>
+    <span class="county">Supporting maize farmers<br>Uasin Gishu, Kenya</span>
+    <div class="account-controls">
       {# Keep the session-bound token in the page, never in a request URL. #}
       <input type="hidden" id="logout-csrf-token" value="{{ logout_csrf_token }}">
-      <p id="logout-error" class="notice error-summary" role="alert" tabindex="-1" hidden></p>
-      <p id="logout-status" role="status" aria-live="polite"></p>
-      <button type="button" id="logout-button" class="submit-button" disabled>Logout</button>
-      <noscript><p>Enable JavaScript to securely log out of your account.</p></noscript>
-    </section>
-  </main>
+      <button type="button" id="logout-button" class="submit-button logout-button" disabled>Logout</button>
+    </div>
+  </header>
+
+  <div class="dashboard-shell">
+    <nav class="dashboard-nav" aria-label="Dashboard sections">
+      <p class="nav-label">Your workspace</p>
+      <a href="#overview">Overview</a>
+      <a href="#farm-plots">Farm plots</a>
+      <a href="#yield">Predicted yield</a>
+      <a href="#finances">Costs &amp; returns</a>
+      <a href="#fertilizer">Fertilizer advice</a>
+      <a href="#history">Prediction history</a>
+      <p class="nav-note">A clearer view of your next maize season.</p>
+    </nav>
+
+    <main class="dashboard-main" id="main-content" tabindex="-1">
+      <div class="session-messages">
+        <p id="logout-error" class="notice error-summary" role="alert" tabindex="-1" hidden></p>
+        <p id="logout-status" role="status" aria-live="polite"></p>
+        <noscript><p class="notice">Enable JavaScript to securely log out of your account. You can still browse the dashboard sections below.</p></noscript>
+      </div>
+
+      <section class="welcome-panel" id="overview" aria-labelledby="dashboard-title" tabindex="-1">
+        <p class="eyebrow">Farmer dashboard</p>
+        {# Jinja escapes an optional name; current authenticated identities contain IDs only. #}
+        <h1 id="dashboard-title">{% if farmer_name %}Welcome, {{ farmer_name }}.{% else %}Welcome, farmer.{% endif %}</h1>
+        <p>Your farm, your plans, your next season.</p>
+        <p class="welcome-note">You are signed in to your FarmAdvis farmer account. Plot summaries, predictions, and advice are not available on this dashboard yet.</p>
+        <a class="section-link" href="#quick-actions">Explore your dashboard <span aria-hidden="true">&darr;</span></a>
+      </section>
+
+      <section class="quick-actions" id="quick-actions" aria-labelledby="actions-title" tabindex="-1">
+        <div>
+          <p class="eyebrow">Find your way</p>
+          <h2 id="actions-title">Quick actions</h2>
+          <p>Jump to a section to see what is available.</p>
+        </div>
+        <div class="action-links">
+          <a href="#farm-plots">View plot summary <span aria-hidden="true">&rarr;</span></a>
+          <a href="#yield">View prediction status <span aria-hidden="true">&rarr;</span></a>
+          <a href="#fertilizer">View advice status <span aria-hidden="true">&rarr;</span></a>
+        </div>
+        <p class="availability-note">Coming later: add a plot, request a prediction, and record production costs.</p>
+      </section>
+
+      <div class="dashboard-grid">
+        <section class="dashboard-card" id="farm-plots" aria-labelledby="plots-title" tabindex="-1">
+          <div class="card-heading"><span class="card-kicker">Your land</span><span class="availability-badge">Coming later</span></div>
+          <h2 id="plots-title">Farm plots</h2>
+          <p class="empty-title">Plot summary not available yet</p>
+          <p>Plot counts, acreage, and plot selection will appear here when farm records are connected.</p>
+          <dl class="summary-list">
+            <div><dt>Total plots</dt><dd>Not available yet</dd></div>
+            <div><dt>Total area</dt><dd>Not available yet</dd></div>
+          </dl>
+        </section>
+
+        <section class="dashboard-card" id="yield" aria-labelledby="yield-title" tabindex="-1">
+          <div class="card-heading"><span class="card-kicker">Harvest outlook</span><span class="availability-badge">Coming later</span></div>
+          <h2 id="yield-title">Latest predicted yield</h2>
+          <p class="empty-title">No predictions yet</p>
+          <p>Yield predictions are not available on this dashboard yet. Future estimates will show maize yield in kg/acre for a selected plot and season.</p>
+          <p class="card-note">Bag equivalents can be shown once a yield estimate is available.</p>
+        </section>
+
+        <section class="dashboard-card" id="finances" aria-labelledby="finances-title" tabindex="-1">
+          <div class="card-heading"><span class="card-kicker">Plan your season</span><span class="availability-badge">Coming later</span></div>
+          <h2 id="finances-title">Estimated costs &amp; returns</h2>
+          <p>Estimates need production costs, a maize price, and a yield prediction.</p>
+          <dl class="summary-list">
+            <div><dt>Production costs</dt><dd>Not available yet</dd></div>
+            <div><dt>Revenue</dt><dd>Not available yet</dd></div>
+            <div><dt>Profit</dt><dd>Not available yet</dd></div>
+            <div><dt>Return on investment (ROI)</dt><dd>Not available yet</dd></div>
+          </dl>
+        </section>
+
+        <section class="dashboard-card" id="fertilizer" aria-labelledby="fertilizer-title" tabindex="-1">
+          <div class="card-heading"><span class="card-kicker">Care for your crop</span><span class="availability-badge">Coming later</span></div>
+          <h2 id="fertilizer-title">Fertilizer recommendations</h2>
+          <p class="empty-title">No recommendations yet</p>
+          <p>Plot-specific fertilizer advice is not available yet. Recommendations will need soil information and validated guidance.</p>
+          <p class="card-note">No fertilizer product or application rate has been recommended.</p>
+        </section>
+
+        <section class="dashboard-card history-card" id="history" aria-labelledby="history-title" tabindex="-1">
+          <div class="card-heading"><span class="card-kicker">See your progress</span><span class="availability-badge">Coming later</span></div>
+          <h2 id="history-title">Prediction history &amp; seasonal comparisons</h2>
+          <div class="history-empty">
+            <span class="history-mark" aria-hidden="true">&mdash;</span>
+            <div>
+              <p class="empty-title">No prediction history yet</p>
+              <p>Saved predictions will appear here. Seasonal charts will become available when comparable prediction records are connected.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
   <footer class="site-footer">FarmAdvis &middot; Supporting maize farmers in Uasin Gishu</footer>
 </body>
 </html>
