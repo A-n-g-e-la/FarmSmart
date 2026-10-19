@@ -141,7 +141,7 @@ class FarmerSessionTests(unittest.TestCase):
         self.assertEqual(page.elements["logout-button"][1]["type"], "button")
         self.assertTrue(all(token not in url for url in page.urls))
         self.assertIn("/static/javascript/dashboard.js", page.urls)
-        for value in ("<form", "user_id", "farmer_id", "password_hash"):
+        for value in ("user_id", "farmer_id", "password_hash"):
             self.assertNotIn(value, html)
 
     def dashboard_logout_token(self):
@@ -163,14 +163,14 @@ class FarmerSessionTests(unittest.TestCase):
             heading = page.elements[section["aria-labelledby"]]
             self.assertIn(heading[0], ("h1", "h2"))
         for text in (
-            "Plot summary not available yet", "No predictions yet",
+            "Enable JavaScript to load your farm plots.", "No predictions yet",
             "No recommendations yet", "No prediction history yet",
             "Production costs", "Revenue", "Profit", "Return on investment (ROI)",
-            "Not available yet", "Coming later: add a plot",
+            "Not available yet", "Coming later: request a prediction",
         ):
             self.assertIn(text, html)
-        # The layout must not imply that unavailable data has a measured value.
-        self.assertNotRegex(html, r"\d[\d,.]*\s*(?:kg|acres?|bags?|%|KES)")
+        # Acreage input limits are guidance; unavailable predictions/finances stay empty.
+        self.assertNotRegex(html, r"\d[\d,.]*\s*(?:kg|bags?|%|KES)")
         self.assertNotIn("<canvas", html)
         self.assertNotIn("chart.js", html.lower())
 
@@ -179,12 +179,55 @@ class FarmerSessionTests(unittest.TestCase):
         page = DashboardParser(self.client.get("/farmer/home").get_data(as_text=True))
         for link in page.links:
             href = link["href"]
+            if href == "/farmer/login-page":
+                continue
             self.assertTrue(href.startswith("#"), href)
             self.assertIn(href[1:], page.elements)
             # Fragment targets can receive keyboard focus after navigation.
             self.assertEqual(page.elements[href[1:]][1].get("tabindex"), "-1")
-        self.assertEqual([button["id"] for button in page.buttons], ["logout-button"])
+        self.assertEqual([button["id"] for button in page.buttons], ["logout-button", "toggle-add-plot", "refresh-plots", "save-plot"])
         self.assertIn("disabled", page.buttons[0])
+
+    def test_plot_form_matches_backend_contract_and_has_free_text_placeholder(self):
+        self.login()
+        html = self.client.get("/farmer/home").get_data(as_text=True)
+        page = DashboardParser(html)
+        self.assertEqual(page.elements["plot-form"][1]["action"], "/farmer/plots")
+        self.assertEqual(page.elements["plot-form"][1]["method"], "post")
+        for element_id, name, limit in (("plot_name", "plot_name", "100"), ("area_acres", "area_acres", "32"),
+                                        ("plot_location", "location", "150"), ("soil_type", "soil_type", "100"),
+                                        ("farming_type", "farming_type", "100")):
+            tag, attrs = page.elements[element_id]
+            self.assertEqual(tag, "input")
+            self.assertEqual(attrs["name"], name)
+            self.assertEqual(attrs["maxlength"], limit)
+            self.assertEqual("required" in attrs, name in ("plot_name", "area_acres"))
+            self.assertIn(f'for="{element_id}"', html)
+            self.assertIn(name + "-error", attrs["aria-describedby"])
+        tag, farming = page.elements["farming_type"]
+        self.assertEqual(farming["type"], "text")
+        self.assertEqual(farming["placeholder"], "e.g., Rain-fed or Irrigated")
+        self.assertNotIn("value", farming)
+        self.assertNotIn("pattern", farming)
+        self.assertIn("disabled", page.elements["plot-fields"][1])
+        self.assertIn('Area (acres) (required)', html)
+        self.assertIn('0.001 to 999999.999 acres', html)
+
+    def test_add_plot_disclosure_is_collapsed_and_success_feedback_stays_outside(self):
+        self.login()
+        html = self.client.get("/farmer/home").get_data(as_text=True)
+        page = DashboardParser(html)
+        tag, toggle = page.elements["toggle-add-plot"]
+        self.assertEqual(tag, "button")
+        self.assertEqual(toggle["type"], "button")
+        self.assertEqual(toggle["aria-expanded"], "false")
+        self.assertEqual(toggle["aria-controls"], "add-plot")
+        self.assertIn("+ Add Farm Plot", html)
+        self.assertIn("hidden", page.elements["add-plot"][1])
+        self.assertEqual(page.elements["add-plot"][1]["tabindex"], "-1")
+        self.assertEqual(page.elements["quick-add-plot"][1]["href"], "#add-plot")
+        self.assertEqual(page.elements["plot-form-status"][1]["role"], "status")
+        self.assertLess(html.index('id="plot-form-status"'), html.index('id="add-plot"'))
 
     def test_dashboard_assets_are_local_and_served(self):
         self.login()
@@ -192,7 +235,9 @@ class FarmerSessionTests(unittest.TestCase):
         assets = [url for url in page.urls if not url.startswith("#")]
         self.assertIn("/static/css/dashboard.css", assets)
         for url in assets:
-            self.assertTrue(url.startswith("/static/"), url)
+            if url == "/farmer/plots":
+                continue  # Form POST action, not a static asset.
+            self.assertTrue(url.startswith("/static/") or url == "/farmer/login-page", url)
             response = self.client.get(url)
             self.assertEqual(response.status_code, 200)
             response.close()

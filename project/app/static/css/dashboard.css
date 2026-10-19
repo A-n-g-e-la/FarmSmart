@@ -47,6 +47,32 @@
 .history-mark { flex-shrink: 0; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: #eaf0e5; color: var(--green); font-size: 1.5rem; }
 .history-empty .empty-title { margin-top: 0; }
 .history-empty p:last-child { margin-bottom: 0; max-width: 65ch; }
+.plots-card { grid-column: 1 / -1; }
+.plot-list { list-style: none; padding: 0; display: grid; gap: 16px; }
+.plot-list li { min-width: 0; padding: 20px; background: #fafbf8; border: 1px solid #dce4d9; border-radius: 12px; overflow-wrap: anywhere; }
+.plot-list h3 { margin: 0 0 12px; }
+.plot-list dl { margin: 0; }
+.plot-list dl > div { margin-bottom: 8px; }
+.plot-list dt { font-size: .8rem; color: var(--muted); }
+.plot-list dd { margin: 0; }
+.plot-registration { border-top: 1px solid #dce4d9; margin-top: 24px; padding-top: 24px; scroll-margin-top: 20px; }
+.plot-card-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.plot-toggle-button { width: auto; }
+.plot-toggle-button:disabled { opacity: .65; cursor: wait; }
+.plot-registration fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.plot-fields-grid { display: grid; gap: 0 20px; }
+.plot-registration input::placeholder { color: #647067; opacity: 1; }
+.plot-registration input { color: var(--ink); }
+.plot-registration button:disabled, .plot-secondary-button:disabled { opacity: .65; cursor: wait; }
+.plot-secondary-button { padding: 10px 18px; min-height: 44px; border: 1px solid var(--green); border-radius: 8px; background: white; color: var(--green); font: inherit; cursor: pointer; }
+.dashboard-card .plot-confirmation { color: var(--green); font-weight: 650; }
+.dashboard-card .field-error { color: var(--red); margin-top: 6px; }
+.dashboard-card .error-summary { color: var(--red); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@media (min-width: 700px) {
+  .plot-fields-grid, .plot-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .plot-registration .submit-button { width: auto; }
+}
 @media (max-width: 380px) {
   .dashboard-header .county { flex-basis: 100%; order: 3; text-align: left; margin-left: 0; }
   .account-controls { margin-left: auto; }

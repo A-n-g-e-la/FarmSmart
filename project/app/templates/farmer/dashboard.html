@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/registration.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
   <script src="{{ url_for('static', filename='javascript/dashboard.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='javascript/farm-plots.js') }}" defer></script>
 </head>
 <body class="dashboard-page">
   <a class="skip-link" href="#main-content">Skip to dashboard</a>
@@ -44,7 +45,7 @@
         {# Jinja escapes an optional name; current authenticated identities contain IDs only. #}
         <h1 id="dashboard-title">{% if farmer_name %}Welcome, {{ farmer_name }}.{% else %}Welcome, farmer.{% endif %}</h1>
         <p>Your farm, your plans, your next season.</p>
-        <p class="welcome-note">You are signed in to your FarmAdvis farmer account. Plot summaries, predictions, and advice are not available on this dashboard yet.</p>
+        <p class="welcome-note">Register your farm plots and keep their details together. Predictions and advice are not available on this dashboard yet.</p>
         <a class="section-link" href="#quick-actions">Explore your dashboard <span aria-hidden="true">&darr;</span></a>
       </section>
 
@@ -56,22 +57,72 @@
         </div>
         <div class="action-links">
           <a href="#farm-plots">View plot summary <span aria-hidden="true">&rarr;</span></a>
+          <a id="quick-add-plot" href="#add-plot">Add Farm Plot <span aria-hidden="true">&rarr;</span></a>
           <a href="#yield">View prediction status <span aria-hidden="true">&rarr;</span></a>
           <a href="#fertilizer">View advice status <span aria-hidden="true">&rarr;</span></a>
         </div>
-        <p class="availability-note">Coming later: add a plot, request a prediction, and record production costs.</p>
+        <p class="availability-note">Coming later: request a prediction and record production costs.</p>
       </section>
 
       <div class="dashboard-grid">
-        <section class="dashboard-card" id="farm-plots" aria-labelledby="plots-title" tabindex="-1">
-          <div class="card-heading"><span class="card-kicker">Your land</span><span class="availability-badge">Coming later</span></div>
+        <section class="dashboard-card plots-card" id="farm-plots" aria-labelledby="plots-title" tabindex="-1">
+          <div class="card-heading"><span class="card-kicker">Your land</span></div>
           <h2 id="plots-title">Farm plots</h2>
-          <p class="empty-title">Plot summary not available yet</p>
-          <p>Plot counts, acreage, and plot selection will appear here when farm records are connected.</p>
+          <p id="plots-status" role="status" aria-live="polite">Enable JavaScript to load your farm plots.</p>
+          <p id="plots-error" class="notice error-summary" role="alert" hidden></p>
+          <p id="plots-empty" hidden>No farm plots registered yet. Choose + Add Farm Plot to register your first plot.</p>
           <dl class="summary-list">
-            <div><dt>Total plots</dt><dd>Not available yet</dd></div>
-            <div><dt>Total area</dt><dd>Not available yet</dd></div>
+            <div><dt>Total plots</dt><dd id="plot-count">Not available yet</dd></div>
+            <div><dt>Total area</dt><dd id="plot-total-area">Not available yet</dd></div>
           </dl>
+          <ul id="plot-list" class="plot-list" aria-label="Registered farm plots"></ul>
+          <div class="plot-card-actions">
+            <button type="button" id="toggle-add-plot" class="submit-button plot-toggle-button" aria-expanded="false" aria-controls="add-plot" disabled>+ Add Farm Plot</button>
+            <button type="button" id="refresh-plots" class="plot-secondary-button" disabled>Refresh plots</button>
+          </div>
+          <p id="plot-session" class="notice" hidden>Your session could not be verified. <a href="{{ url_for('farmer.login_page') }}">Log in again</a> to continue.</p>
+          <p id="plot-form-status" class="plot-confirmation" role="status" aria-live="polite"></p>
+          <noscript><p>Enable JavaScript to open the form and register farm plots securely.</p></noscript>
+
+          <div id="add-plot" class="plot-registration" tabindex="-1" hidden>
+            <h3 id="add-plot-title">Add Farm Plot</h3>
+            <p>Fields marked (required) must be completed. Area is measured in acres.</p>
+            <p id="plot-form-error" class="notice error-summary" role="alert" tabindex="-1" hidden></p>
+            <form id="plot-form" method="post" action="{{ url_for('farmer.create_plot') }}" aria-labelledby="add-plot-title" novalidate>
+              <fieldset id="plot-fields" disabled>
+                <legend class="visually-hidden">New farm plot details</legend>
+                <div class="plot-fields-grid">
+                  <div class="field">
+                    <label for="plot_name">Plot Name (required)</label>
+                    <input id="plot_name" name="plot_name" type="text" maxlength="100" required aria-describedby="plot_name-error">
+                    <p id="plot_name-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="area_acres">Area (acres) (required)</label>
+                    <input id="area_acres" name="area_acres" type="text" inputmode="decimal" maxlength="32" required aria-describedby="area_acres-hint area_acres-error">
+                    <p id="area_acres-hint" class="hint">0.001 to 999999.999 acres; at most 3 decimal places. Use a decimal point.</p>
+                    <p id="area_acres-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="plot_location">Location (optional)</label>
+                    <input id="plot_location" name="location" type="text" maxlength="150" aria-describedby="location-error">
+                    <p id="location-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="soil_type">Soil Type (optional)</label>
+                    <input id="soil_type" name="soil_type" type="text" maxlength="100" aria-describedby="soil_type-error">
+                    <p id="soil_type-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="farming_type">Farming Type (optional)</label>
+                    <input id="farming_type" name="farming_type" type="text" maxlength="100" placeholder="e.g., Rain-fed or Irrigated" aria-describedby="farming_type-error">
+                    <p id="farming_type-error" class="field-error" hidden></p>
+                  </div>
+                </div>
+                <button id="save-plot" type="submit" class="submit-button">Register farm plot</button>
+              </fieldset>
+            </form>
+          </div>
         </section>
 
         <section class="dashboard-card" id="yield" aria-labelledby="yield-title" tabindex="-1">

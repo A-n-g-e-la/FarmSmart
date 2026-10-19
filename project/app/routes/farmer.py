@@ -1,14 +1,64 @@
+import json
 import time
 from collections.abc import Mapping
+from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, flash, g, jsonify, redirect, render_template, request, session, url_for
 
 from app.security import csrf_token, farmer_required, valid_csrf
 from app.services.authentication_service import authenticate_farmer
+from app.services.farm_plot_service import get_farmer_plots, register_farmer_plot
 from app.services.registration_service import register_farmer
 
 
 farmer_bp = Blueprint("farmer", __name__, url_prefix="/farmer")
+
+
+@farmer_bp.after_request
+def plot_response_cache_control(response):
+    # Include authorization failures returned before the protected view is reached.
+    if request.endpoint in {"farmer.plots", "farmer.create_plot", "farmer.plot_csrf_token"}:
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@farmer_bp.get("/plots")
+@farmer_required
+def plots():
+    # Ignore client IDs in query strings, headers, or bodies; use revalidated identity.
+    result = get_farmer_plots(g.farmer_identity["farmer_id"])
+    return jsonify(result), 200 if result["ok"] else 503
+
+
+@farmer_bp.get("/plots/csrf-token")
+@farmer_required
+def plot_csrf_token():
+    return jsonify({"ok": True, "csrf_token": csrf_token("plot_registration")})
+
+
+@farmer_bp.post("/plots")
+@farmer_required
+def create_plot():
+    if request.is_json:
+        try:
+            # Preserve submitted decimal precision instead of rounding via float.
+            data = json.loads(request.get_data(), parse_float=Decimal)
+        except (ValueError, UnicodeError, InvalidOperation):
+            data = None
+    elif request.mimetype in ("application/x-www-form-urlencoded", "multipart/form-data"):
+        data = request.form
+    else:
+        data = None
+    if not isinstance(data, Mapping):
+        return jsonify({"ok": False, "code": "validation_error", "errors": {
+            "request": "Send a plot object as JSON or form data.",
+        }}), 400
+    token = request.headers.get("X-CSRF-Token") or data.get("csrf_token", "")
+    if not valid_csrf("plot_registration", token):
+        return jsonify({"ok": False, "code": "csrf_error", "message": "The request could not be verified."}), 403
+    result = register_farmer_plot(g.farmer_identity["farmer_id"], data)
+    status = 201 if result["ok"] else 400 if result["code"] == "validation_error" else 503
+    return jsonify(result), status
 
 
 @farmer_bp.post("/register")

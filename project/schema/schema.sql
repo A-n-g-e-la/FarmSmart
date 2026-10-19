@@ -52,7 +52,7 @@ CREATE TABLE farm_plots (
     plot_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     farmer_id BIGINT UNSIGNED NOT NULL,
     plot_name VARCHAR(100) NOT NULL,
-    area_ha DECIMAL(8,3) NOT NULL,
+    area_acres DECIMAL(12,6) NOT NULL,
     location VARCHAR(150) NULL,
     soil_type VARCHAR(100) NULL,
     farming_type VARCHAR(100) NULL,
@@ -61,7 +61,7 @@ CREATE TABLE farm_plots (
         ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (plot_id),
     INDEX idx_farm_plots_farmer_id (farmer_id),
-    CONSTRAINT chk_farm_plots_area_ha_positive CHECK (area_ha > 0),
+    CONSTRAINT chk_farm_plots_area_acres_positive CHECK (area_acres > 0),
     CONSTRAINT fk_farm_plots_farmer_id
         FOREIGN KEY (farmer_id) REFERENCES farmers (farmer_id)
         ON DELETE RESTRICT ON UPDATE RESTRICT
