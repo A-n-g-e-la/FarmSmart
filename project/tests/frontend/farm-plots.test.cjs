@@ -9,7 +9,8 @@ const response = (status, data) => ({ status, ok: status >= 200 && status < 300,
 const listing = (plots = []) => response(200, { ok: true, plots });
 const token = () => response(200, { ok: true, csrf_token: "scoped-token" });
 const created = () => response(201, { ok: true, plot_id: 123 });
-const plot = (area = "1.250000") => ({ plot_id: 1, plot_name: "North plot", area_acres: area,
+let nextPlotId = 1;
+const plot = (area = "1.250000") => ({ plot_id: nextPlotId++, plot_name: "North plot", area_acres: area,
   location: null, soil_type: "Loam", farming_type: "Mixed practice" });
 
 function element(tag = "div") {
@@ -31,11 +32,16 @@ function setup(responses = []) {
     "plot-total-area", "plots-empty", "plots-status", "plots-error", "plot-form-status", "plot-form-error",
     "plot-session", "plot_name", "area_acres", "plot_location", "soil_type", "farming_type",
     "add-plot", "toggle-add-plot", "quick-add-plot",
+    "plot-selection-status", "selected-plot-details",
+    "edit-plot", "edit-plot-panel", "edit-plot-form", "edit-plot-fields", "save-plot-changes", "cancel-plot-edit",
+    "edit-plot-status", "edit-plot-error", ...names.map((name) => "edit-" + name),
+    ...names.map((name) => "edit-" + name + "-error"),
     ...names.map((name) => name + "-error")];
   const elements = Object.fromEntries(ids.map((id) => [id, element()]));
   elements["plot-session"].hidden = true;
   const inputs = names.map((name) => elements[name === "location" ? "plot_location" : name]);
   elements["plot-form"].reset = () => inputs.forEach((input) => { input.value = ""; });
+  elements["edit-plot-form"].reset = () => names.forEach((name) => { elements["edit-" + name].value = ""; });
   const calls = [];
   vm.runInNewContext(source, {
     document: { getElementById: (id) => elements[id], createElement: element },
@@ -55,12 +61,355 @@ function setup(responses = []) {
     },
     submit: () => elements["plot-form"].listeners.submit({ preventDefault() {} }),
     refresh: () => elements["refresh-plots"].listeners.click(),
+    edit: () => elements["edit-plot"].listeners.click(),
+    cancelEdit: () => elements["cancel-plot-edit"].listeners.click(),
+    saveEdit: () => elements["edit-plot-form"].listeners.submit({ preventDefault() {} }),
   };
 }
 
 function textTree(node) {
   return [node.textContent, ...node.children.map(textTree)].join(" ");
 }
+
+const cards = (app) => app.elements["plot-list"].children.map((item) => item.children[0]);
+
+test("editing is available only after selection and prefills every field safely", async () => {
+  const sample = { ...plot(), plot_name: '<img src=x onerror="alert(1)">' };
+  const app = setup([listing([sample])]);
+  await tick();
+  assert.equal(app.elements["edit-plot"].hidden, true);
+  assert.equal(app.elements["edit-plot-panel"].hidden, true);
+  cards(app)[0].listeners.click(); app.edit();
+  assert.equal(app.elements["edit-plot"].hidden, false);
+  assert.equal(app.elements["edit-plot-panel"].hidden, false);
+  assert.equal(app.elements["edit-plot"].attributes["aria-expanded"], "true");
+  assert.equal(app.elements["edit-plot_name"].value, sample.plot_name);
+  assert.equal(app.elements["edit-area_acres"].value, "1.25");
+  assert.equal(app.elements["edit-location"].value, "");
+  assert.equal(app.elements["edit-soil_type"].value, "Loam");
+  assert.equal(app.elements["edit-farming_type"].value, "Mixed practice");
+  assert.equal(app.elements["edit-plot_name"].focused, true);
+});
+
+test("Cancel and Escape discard edits without requests, preserve add-form draft and restore focus", async () => {
+  const app = setup([listing([plot()])]);
+  await tick(); cards(app)[0].listeners.click(); app.fill(); app.edit();
+  app.elements["edit-plot_name"].value = "Unsaved";
+  app.cancelEdit();
+  assert.equal(app.elements["edit-plot-panel"].hidden, true);
+  assert.equal(app.elements["edit-plot_name"].value, "");
+  assert.equal(app.elements["edit-plot"].focused, true);
+  assert.equal(app.elements.plot_name.value, " North plot ");
+  app.edit();
+  assert.equal(app.elements["edit-plot_name"].value, "North plot");
+  let prevented = false;
+  app.elements["edit-plot-panel"].listeners.keydown({ key: "Escape", preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(app.elements["edit-plot-panel"].hidden, true);
+  assert.equal(app.calls.length, 1);
+});
+
+test("PATCH sends changed fields and null clears, refreshes reordered selected details, and confirms", async () => {
+  const selected = { ...plot(), plot_id: 123, location: "Moiben" };
+  const other = plot();
+  const app = setup([listing([selected, other]), token(), response(200, { ok: true, plot_id: 123 }),
+    listing([other, { ...selected, plot_name: "Renamed", location: null }])]);
+  await tick(); cards(app)[0].listeners.click(); app.edit();
+  app.elements["edit-plot_name"].value = "Renamed";
+  app.elements["edit-location"].value = " ";
+  await app.saveEdit();
+  assert.equal(app.calls[1].url, "/farmer/plots/csrf-token");
+  assert.equal(app.calls[2].url, "/farmer/plots/123");
+  assert.equal(app.calls[2].method, "PATCH");
+  assert.equal(app.calls[2].credentials, "same-origin");
+  assert.equal(app.calls[2].cache, "no-store");
+  assert.equal(app.calls[2].headers["X-CSRF-Token"], "scoped-token");
+  assert.deepEqual(JSON.parse(app.calls[2].body), { plot_name: "Renamed", location: null });
+  assert.equal(cards(app)[1].attributes["aria-pressed"], "true");
+  assert.match(textTree(app.elements["selected-plot-details"]), /Renamed/);
+  assert.match(app.elements["edit-plot-status"].textContent, /updated successfully/);
+  assert.equal(app.elements["edit-plot-panel"].hidden, true);
+  assert.equal(app.elements["edit-plot"].focused, true);
+});
+
+test("unchanged six-place acreage is preserved when editing another field", async () => {
+  const sample = { ...plot("0.002471"), plot_id: 123 };
+  const app = setup([listing([sample]), token(), response(200, { ok: true, plot_id: 123 }), listing([sample])]);
+  await tick(); cards(app)[0].listeners.click(); app.edit();
+  app.elements["edit-soil_type"].value = "Clay";
+  await app.saveEdit();
+  assert.deepEqual(JSON.parse(app.calls[2].body), { soil_type: "Clay" });
+});
+
+test("unchanged form sends no request and changed values obey registration validation", async () => {
+  const app = setup([listing([plot()])]);
+  await tick(); cards(app)[0].listeners.click(); app.edit(); await app.saveEdit();
+  assert.match(app.elements["edit-plot-status"].textContent, /No changes/);
+  for (const value of ["0", "-1", "0.0001", "1.2345", "1.250000", "1000000", "NaN", "1e3"]) {
+    app.elements["edit-area_acres"].value = value;
+    await app.saveEdit();
+    assert.equal(app.elements["edit-area_acres-error"].hidden, false);
+    assert.equal(app.elements["edit-plot-panel"].hidden, false);
+  }
+  app.elements["edit-area_acres"].value = "1.25";
+  app.elements["edit-plot_name"].value = "";
+  app.elements["edit-location"].value = "x".repeat(151);
+  app.elements["edit-farming_type"].value = "x".repeat(101);
+  await app.saveEdit();
+  for (const name of ["plot_name", "location", "farming_type"]) assert.equal(app.elements[`edit-${name}-error`].hidden, false);
+  assert.equal(app.elements["edit-plot-error"].focused, true);
+  assert.equal(app.calls.length, 1);
+});
+
+test("backend validation remains visible without displaying diagnostics", async () => {
+  const app = setup([listing([plot()]), token(), response(400, { errors: { plot_name: "private SQL", area_acres: "<script>" } })]);
+  await tick(); cards(app)[0].listeners.click(); app.edit();
+  app.elements["edit-plot_name"].value = "Changed";
+  await app.saveEdit();
+  assert.equal(app.elements["edit-plot-panel"].hidden, false);
+  assert.equal(app.elements["edit-plot_name"].value, "Changed");
+  assert.equal(app.elements["edit-plot_name-error"].hidden, false);
+  assert.doesNotMatch(app.elements["edit-plot_name-error"].textContent, /private/);
+  assert.equal(app.elements["edit-plot-fields"].disabled, false);
+});
+
+test("CSRF rejection permits a deliberate retry with a fresh token", async () => {
+  const sample = { ...plot(), plot_id: 123 };
+  const app = setup([listing([sample]), token(), response(403, {}), token(), response(200, { ok: true, plot_id: 123 }), listing([sample])]);
+  await tick(); cards(app)[0].listeners.click(); app.edit();
+  app.elements["edit-plot_name"].value = "Changed";
+  await app.saveEdit();
+  assert.equal(app.calls.length, 3);
+  assert.equal(app.elements["edit-plot-panel"].hidden, false);
+  assert.match(app.elements["edit-plot-error"].textContent, /fresh security token/);
+  await app.saveEdit();
+  assert.equal(app.calls[3].url, "/farmer/plots/csrf-token");
+});
+
+for (const failure of [response(503, {}), new Error("private timeout"), response(200, { ok: false })]) {
+  test("unconfirmed PATCH preserves the draft and asks to check saved details", async () => {
+    const app = setup([listing([plot()]), token(), failure]);
+    await tick(); cards(app)[0].listeners.click(); app.edit();
+    app.elements["edit-plot_name"].value = "Changed";
+    await app.saveEdit();
+    assert.match(app.elements["edit-plot-error"].textContent, /check the saved details/);
+    assert.equal(app.elements["edit-plot_name"].value, "Changed");
+    assert.equal(app.elements["edit-plot-panel"].hidden, false);
+    assert.equal(app.elements["edit-plot-status"].textContent, "");
+  });
+}
+
+for (const duringPatch of [false, true]) {
+  test("expired sessions disable editing and show the login prompt", async () => {
+    const app = setup([listing([plot()]), ...(duringPatch ? [token()] : []), response(401, {})]);
+    await tick(); cards(app)[0].listeners.click(); app.edit();
+    app.elements["edit-plot_name"].value = "Changed";
+    await app.saveEdit();
+    assert.equal(app.elements["edit-plot-fields"].disabled, true);
+    assert.equal(app.elements["edit-plot-panel"].hidden, true);
+    assert.equal(app.elements["edit-plot"].hidden, true);
+    assert.equal(app.elements["plot-session"].hidden, false);
+    assert.equal(app.elements["edit-plot_name"].value, "");
+  });
+}
+
+test("switching selected plots closes and discards the edit draft", async () => {
+  const first = plot(); const second = { ...plot(), plot_name: "South plot" };
+  const app = setup([listing([first, second])]);
+  await tick(); cards(app)[0].listeners.click(); app.edit();
+  app.elements["edit-plot_name"].value = "Unsaved";
+  cards(app)[1].listeners.click();
+  assert.equal(app.elements["edit-plot-panel"].hidden, true);
+  assert.equal(app.elements["edit-plot_name"].value, "");
+  app.edit();
+  assert.equal(app.elements["edit-plot_name"].value, "South plot");
+  assert.equal(app.calls.length, 1);
+});
+
+test("pending edit blocks duplicate saves, add submits and refresh", async () => {
+  let resolve;
+  const pending = new Promise((done) => { resolve = done; });
+  const sample = { ...plot(), plot_id: 123 };
+  const app = setup([listing([sample]), token(), pending, listing([sample])]);
+  await tick(); cards(app)[0].listeners.click(); app.fill(); app.edit();
+  app.elements["edit-plot_name"].value = "Changed";
+  const saving = app.saveEdit(); await tick();
+  await app.saveEdit(); await app.submit(); await app.refresh();
+  assert.equal(app.calls.length, 3);
+  assert.equal(app.elements["edit-plot-fields"].disabled, true);
+  assert.equal(app.elements["plot-fields"].disabled, true);
+  assert.equal(app.elements["edit-plot-form"].attributes["aria-busy"], "true");
+  resolve(response(200, { ok: true, plot_id: 123 })); await saving;
+  assert.equal(app.elements["plot-fields"].disabled, false);
+  assert.equal(app.elements.plot_name.value, " North plot ");
+});
+
+test("switching before token acquisition prevents PATCH to a discarded draft", async () => {
+  let resolve;
+  const pending = new Promise((done) => { resolve = done; });
+  const app = setup([listing([plot(), plot()]), pending]);
+  await tick(); cards(app)[0].listeners.click(); app.edit();
+  app.elements["edit-plot_name"].value = "Changed";
+  const saving = app.saveEdit(); cards(app)[1].listeners.click();
+  resolve(token()); await saving;
+  assert.equal(app.calls.length, 2);
+  assert.equal(app.elements["edit-plot-panel"].hidden, true);
+});
+
+test("an in-flight PATCH cannot overwrite the newly selected plot's editor", async () => {
+  let resolve;
+  const pending = new Promise((done) => { resolve = done; });
+  const first = { ...plot(), plot_id: 123 }; const second = { ...plot(), plot_name: "South" };
+  const app = setup([listing([first, second]), token(), pending, listing([first, second])]);
+  await tick(); cards(app)[0].listeners.click(); app.edit();
+  app.elements["edit-plot_name"].value = "Changed";
+  const saving = app.saveEdit(); await tick(); cards(app)[1].listeners.click();
+  resolve(response(200, { ok: true, plot_id: 123 })); await saving;
+  assert.equal(cards(app)[1].attributes["aria-pressed"], "true");
+  assert.equal(app.elements["edit-plot-panel"].hidden, true);
+  assert.equal(app.elements["edit-plot-status"].textContent, "");
+  app.edit(); assert.equal(app.elements["edit-plot_name"].value, "South");
+});
+
+test("404 closes editing and refreshes the selection without leaking server details", async () => {
+  const app = setup([listing([plot()]), token(), response(404, {}), listing()]);
+  await tick(); cards(app)[0].listeners.click(); app.edit();
+  app.elements["edit-plot_name"].value = "Changed";
+  await app.saveEdit();
+  assert.equal(app.elements["edit-plot-panel"].hidden, true);
+  assert.equal(app.elements["edit-plot"].hidden, true);
+  assert.match(app.elements["edit-plot-error"].textContent, /no longer available/);
+  assert.equal(app.elements["edit-plot-error"].hidden, false);
+  assert.equal(app.elements["edit-plot-error"].focused, true);
+});
+
+for (const switchBack of [false, true]) {
+  test(`404 refresh does not show or focus stale feedback after switching plots${switchBack ? " and switching back" : ""}`, async () => {
+    let resolveRefresh;
+    const pendingRefresh = new Promise((resolve) => { resolveRefresh = resolve; });
+    const first = { ...plot(), plot_id: 123, plot_name: "Plot A" };
+    const second = { ...plot(), plot_id: 456, plot_name: "Plot B" };
+    const app = setup([listing([first, second]), token(), response(404, {}), pendingRefresh]);
+    await tick(); cards(app)[0].listeners.click(); app.edit();
+    app.elements["edit-plot_name"].value = "Updated A";
+    const saving = app.saveEdit();
+    await tick();
+    assert.equal(app.calls.at(-1).url, "/farmer/plots");
+    assert.equal(app.elements["refresh-plots"].disabled, true);
+    cards(app)[1].listeners.click();
+    if (switchBack) cards(app)[0].listeners.click();
+    resolveRefresh(listing(switchBack ? [first, second] : [second]));
+    await saving;
+    assert.equal(cards(app)[0].attributes["aria-pressed"], "true");
+    assert.match(textTree(app.elements["selected-plot-details"]), switchBack ? /Plot A/ : /Plot B/);
+    assert.equal(app.elements["edit-plot-error"].hidden, true);
+    assert.notEqual(app.elements["edit-plot-error"].focused, true);
+    assert.equal(app.elements["edit-plot-panel"].hidden, true);
+  });
+}
+
+test("a confirmed update remains confirmed if its refresh fails", async () => {
+  const sample = { ...plot(), plot_id: 123 };
+  const app = setup([listing([sample]), token(), response(200, { ok: true, plot_id: 123 }), response(503, {})]);
+  await tick(); cards(app)[0].listeners.click(); app.edit();
+  app.elements["edit-plot_name"].value = "Changed";
+  await app.saveEdit();
+  assert.match(app.elements["edit-plot-status"].textContent, /updated successfully/);
+  assert.equal(app.elements["plots-error"].hidden, false);
+  assert.equal(app.elements["edit-plot-panel"].hidden, true);
+});
+
+test("plot cards use native buttons and start without an automatic selection", async () => {
+  const app = setup([listing([{ ...plot(), plot_id: 11, location: "Moiben" }, { ...plot(), plot_id: 22 }])]);
+  await tick();
+  assert.equal(app.elements["selected-plot-details"].hidden, true);
+  assert.match(app.elements["plot-selection-status"].textContent, /Select a farm plot/);
+  for (const button of cards(app)) {
+    assert.equal(button.tag, "button");
+    assert.equal(button.type, "button");
+    assert.equal(button.attributes["aria-pressed"], "false");
+    assert.equal(button.attributes["aria-controls"], "selected-plot-details");
+    assert.equal(button.children.at(-1).hidden, true);
+  }
+  assert.equal(cards(app)[0].attributes["data-plot-id"], "11");
+  assert.match(textTree(cards(app)[0]), /Moiben/);
+});
+
+test("selecting and switching same-named plots updates indicators and all details by ID", async () => {
+  const first = { ...plot(), plot_id: 11, location: "Moiben" };
+  const second = { ...plot("2.500000"), plot_id: 22, location: null, soil_type: "Clay", farming_type: "Irrigated" };
+  const app = setup([listing([first, second])]);
+  await tick();
+  cards(app)[0].listeners.click();
+  assert.equal(cards(app)[0].attributes["aria-pressed"], "true");
+  assert.equal(cards(app)[0].children.at(-1).hidden, false);
+  assert.equal(app.elements["selected-plot-details"].hidden, false);
+  assert.match(textTree(app.elements["selected-plot-details"]), /Moiben/);
+  cards(app)[1].listeners.click();
+  assert.equal(cards(app)[0].attributes["aria-pressed"], "false");
+  assert.equal(cards(app)[0].children.at(-1).hidden, true);
+  assert.equal(cards(app)[1].attributes["aria-pressed"], "true");
+  assert.equal(cards(app)[1].children.at(-1).hidden, false);
+  for (const value of ["North plot", "2.500000 acres", "Not provided", "Clay", "Irrigated"]) {
+    assert.ok(textTree(app.elements["selected-plot-details"]).includes(value));
+  }
+  assert.equal(app.calls.length, 1); // Selection uses the authenticated list already retrieved.
+});
+
+test("refresh preserves ID selection through reorder and updates changed details", async () => {
+  const first = { ...plot(), plot_id: 11 };
+  const second = { ...plot(), plot_id: 22 };
+  const app = setup([listing([first, second]), listing([{ ...second, plot_name: "Renamed", area_acres: "3.000000" }, first])]);
+  await tick(); cards(app)[1].listeners.click();
+  await app.refresh();
+  assert.equal(cards(app)[0].attributes["data-plot-id"], "22");
+  assert.equal(cards(app)[0].attributes["aria-pressed"], "true");
+  assert.equal(cards(app)[1].attributes["aria-pressed"], "false");
+  assert.match(textTree(app.elements["selected-plot-details"]), /Renamed/);
+  assert.match(textTree(app.elements["selected-plot-details"]), /3.000000 acres/);
+});
+
+test("refresh removing the selected ID clears selection even if another plot shares its name", async () => {
+  const first = { ...plot(), plot_id: 11 };
+  const second = { ...plot(), plot_id: 22 };
+  const app = setup([listing([first, second]), listing([second])]);
+  await tick(); cards(app)[0].listeners.click(); await app.refresh();
+  assert.equal(cards(app)[0].attributes["aria-pressed"], "false");
+  assert.equal(app.elements["selected-plot-details"].hidden, true);
+  assert.equal(app.elements["selected-plot-details"].children.length, 0);
+  assert.match(app.elements["plot-selection-status"].textContent, /Select a farm plot/);
+});
+
+test("empty refresh clears selection and leaves registration available", async () => {
+  const app = setup([listing([plot()]), listing()]);
+  await tick(); cards(app)[0].listeners.click(); await app.refresh();
+  assert.equal(cards(app).length, 0);
+  assert.equal(app.elements["plots-empty"].hidden, false);
+  assert.equal(app.elements["selected-plot-details"].hidden, true);
+  assert.match(app.elements["plot-selection-status"].textContent, /Select a farm plot/);
+  app.elements["toggle-add-plot"].listeners.click();
+  assert.equal(app.elements["add-plot"].hidden, false);
+});
+
+test("failed refresh clears stale details but can restore selection on successful retry", async () => {
+  const selected = plot();
+  const app = setup([listing([selected]), response(503, {}), listing([selected])]);
+  await tick(); cards(app)[0].listeners.click(); await app.refresh();
+  assert.equal(app.elements["selected-plot-details"].hidden, true);
+  assert.equal(app.elements["selected-plot-details"].children.length, 0);
+  await app.refresh();
+  assert.equal(cards(app)[0].attributes["aria-pressed"], "true");
+});
+
+test("expired sessions discard selected details and old card actions", async () => {
+  const app = setup([listing([plot()]), response(401, {})]);
+  await tick();
+  const oldCard = cards(app)[0];
+  oldCard.listeners.click(); await app.refresh(); oldCard.listeners.click();
+  assert.equal(app.elements["selected-plot-details"].hidden, true);
+  assert.equal(app.elements["selected-plot-details"].children.length, 0);
+  assert.match(app.elements["plot-selection-status"].textContent, /log in again/);
+});
 
 test("form starts collapsed while plot retrieval and summaries remain available", async () => {
   const app = setup([listing([plot()])]);
@@ -128,8 +477,9 @@ test("initial retrieval uses private same-origin GET and shows actual counts and
   assert.equal(app.elements["plot-count"].textContent, "2");
   assert.equal(app.elements["plot-total-area"].textContent, "0.300000 acres");
   assert.equal(app.elements["plots-empty"].hidden, true);
-  assert.match(textTree(app.elements["plot-list"]), /Not provided/);
-  assert.match(textTree(app.elements["plot-list"]), /Mixed practice/);
+  app.elements["plot-list"].children[0].children[0].listeners.click();
+  assert.match(textTree(app.elements["selected-plot-details"]), /Not provided/);
+  assert.match(textTree(app.elements["selected-plot-details"]), /Mixed practice/);
 });
 
 test("empty plots show an honest empty state and zero totals only after success", async () => {
@@ -170,8 +520,10 @@ test("user-supplied strings are rendered as text nodes without HTML interpretati
   const app = setup([listing([{ ...plot(), plot_name: malicious, location: malicious,
     soil_type: malicious, farming_type: malicious }])]);
   await tick();
-  assert.equal(app.elements["plot-list"].children[0].children[0].textContent, malicious);
+  assert.equal(app.elements["plot-list"].children[0].children[0].children[0].textContent, malicious);
   assert.match(textTree(app.elements["plot-list"]), /onerror/);
+  app.elements["plot-list"].children[0].children[0].listeners.click();
+  assert.match(textTree(app.elements["selected-plot-details"]), /onerror/);
 });
 
 test("valid submission fetches CSRF, posts allowlisted string fields, resets, and refreshes", async () => {

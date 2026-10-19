@@ -185,7 +185,10 @@ class FarmerSessionTests(unittest.TestCase):
             self.assertIn(href[1:], page.elements)
             # Fragment targets can receive keyboard focus after navigation.
             self.assertEqual(page.elements[href[1:]][1].get("tabindex"), "-1")
-        self.assertEqual([button["id"] for button in page.buttons], ["logout-button", "toggle-add-plot", "refresh-plots", "save-plot"])
+        self.assertEqual([button["id"] for button in page.buttons], [
+            "logout-button", "edit-plot", "save-plot-changes", "cancel-plot-edit",
+            "toggle-add-plot", "refresh-plots", "save-plot",
+        ])
         self.assertIn("disabled", page.buttons[0])
 
     def test_plot_form_matches_backend_contract_and_has_free_text_placeholder(self):
@@ -228,6 +231,41 @@ class FarmerSessionTests(unittest.TestCase):
         self.assertEqual(page.elements["quick-add-plot"][1]["href"], "#add-plot")
         self.assertEqual(page.elements["plot-form-status"][1]["role"], "status")
         self.assertLess(html.index('id="plot-form-status"'), html.index('id="add-plot"'))
+
+    def test_plot_selection_has_labeled_details_and_no_default_selection(self):
+        self.login()
+        html = self.client.get("/farmer/home").get_data(as_text=True)
+        page = DashboardParser(html)
+        self.assertIn("Selected plot details", html)
+        self.assertIn("Select a farm plot to view its details.", html)
+        self.assertIn("hidden", page.elements["selected-plot-details"][1])
+        self.assertEqual(page.elements["selected-plot-details"][0], "dl")
+        self.assertEqual(page.elements["plot-selection-status"][1]["role"], "status")
+        self.assertEqual(page.elements["plot-selection-status"][1]["aria-live"], "polite")
+
+    def test_edit_form_is_hidden_accessible_and_has_independent_fields(self):
+        self.login()
+        html = self.client.get("/farmer/home").get_data(as_text=True)
+        page = DashboardParser(html)
+        self.assertIn("hidden", page.elements["edit-plot"][1])
+        self.assertIn("hidden", page.elements["edit-plot-panel"][1])
+        self.assertIn("disabled", page.elements["edit-plot-fields"][1])
+        self.assertEqual(page.elements["edit-plot"][1]["aria-expanded"], "false")
+        self.assertEqual(page.elements["edit-plot"][1]["aria-controls"], "edit-plot-panel")
+        self.assertEqual(page.elements["edit-plot-form"][1]["aria-labelledby"], "edit-plot-title")
+        self.assertEqual(page.elements["save-plot-changes"][1]["type"], "submit")
+        self.assertEqual(page.elements["cancel-plot-edit"][1]["type"], "button")
+        for name, limit in (("plot_name", "100"), ("area_acres", "32"), ("location", "150"),
+                            ("soil_type", "100"), ("farming_type", "100")):
+            attrs = page.elements["edit-" + name][1]
+            self.assertEqual(attrs["name"], name)
+            self.assertEqual(attrs["maxlength"], limit)
+            self.assertEqual("required" in attrs, name in ("plot_name", "area_acres"))
+            self.assertIn(f'for="edit-{name}"', html)
+            self.assertIn("edit-" + name + "-error", attrs["aria-describedby"])
+        self.assertEqual(page.elements["edit-farming_type"][1]["placeholder"], "e.g., Rain-fed or Irrigated")
+        self.assertEqual(page.elements["edit-farming_type"][1]["type"], "text")
+        self.assertEqual(page.elements["edit-plot-status"][1]["role"], "status")
 
     def test_dashboard_assets_are_local_and_served(self):
         self.login()

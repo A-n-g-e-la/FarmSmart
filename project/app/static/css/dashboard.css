@@ -49,8 +49,18 @@
 .history-empty p:last-child { margin-bottom: 0; max-width: 65ch; }
 .plots-card { grid-column: 1 / -1; }
 .plot-list { list-style: none; padding: 0; display: grid; gap: 16px; }
-.plot-list li { min-width: 0; padding: 20px; background: #fafbf8; border: 1px solid #dce4d9; border-radius: 12px; overflow-wrap: anywhere; }
-.plot-list h3 { margin: 0 0 12px; }
+.plot-list li { min-width: 0; }
+.plot-select { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; width: 100%; height: 100%; min-height: 120px; padding: 20px; text-align: left; font: inherit; color: var(--ink); background: #fafbf8; border: 2px solid #dce4d9; border-radius: 12px; overflow-wrap: anywhere; cursor: pointer; }
+.plot-select:hover { border-color: #7f9c70; }
+.plot-select:focus-visible { outline: 3px solid #b67b13; outline-offset: 3px; }
+.plot-select[aria-pressed="true"] { border-color: var(--green); background: #e5eedb; }
+.plot-card-name { font-size: 1.05rem; font-weight: 700; }
+.plot-card-indicator { padding: 3px 10px; border-radius: 12px; background: var(--green); color: white; font-size: .8rem; font-weight: 700; }
+.plot-selection { padding: 20px; margin-block: 20px; border: 1px solid #dce4d9; border-radius: 12px; background: #fafbf8; overflow-wrap: anywhere; }
+.plot-selection h3 { margin: 0 0 12px; }
+.plot-selection > .plot-secondary-button { margin-top: 16px; }
+.plot-selection > .plot-confirmation:not(:empty) { margin-top: 16px; }
+.plot-registration h4 { font-size: 1.1rem; margin: 0 0 12px; }
 .plot-list dl { margin: 0; }
 .plot-list dl > div { margin-bottom: 8px; }
 .plot-list dt { font-size: .8rem; color: var(--muted); }

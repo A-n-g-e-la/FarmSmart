@@ -76,6 +76,55 @@
             <div><dt>Total area</dt><dd id="plot-total-area">Not available yet</dd></div>
           </dl>
           <ul id="plot-list" class="plot-list" aria-label="Registered farm plots"></ul>
+          <div class="plot-selection" aria-labelledby="selected-plot-title">
+            <h3 id="selected-plot-title">Selected plot details</h3>
+            <p id="plot-selection-status" role="status" aria-live="polite">Select a farm plot to view its details.</p>
+            <dl id="selected-plot-details" class="summary-list" hidden></dl>
+            <button id="edit-plot" type="button" class="plot-secondary-button" aria-expanded="false" aria-controls="edit-plot-panel" hidden disabled>Edit Plot</button>
+            <p id="edit-plot-status" class="plot-confirmation" role="status" aria-live="polite"></p>
+            <p id="edit-plot-error" class="notice error-summary" role="alert" tabindex="-1" hidden></p>
+            <div id="edit-plot-panel" class="plot-registration" hidden>
+              <h4 id="edit-plot-title">Edit selected plot</h4>
+              <p>Fields marked (required) must be completed. Only changed fields are saved.</p>
+              <form id="edit-plot-form" aria-labelledby="edit-plot-title" novalidate>
+                <fieldset id="edit-plot-fields" disabled>
+                  <legend class="visually-hidden">Edit farm plot details</legend>
+                  <div class="plot-fields-grid">
+                    <div class="field">
+                      <label for="edit-plot_name">Plot Name (required)</label>
+                      <input id="edit-plot_name" name="plot_name" type="text" maxlength="100" required aria-describedby="edit-plot_name-error">
+                      <p id="edit-plot_name-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-area_acres">Area (acres) (required)</label>
+                      <input id="edit-area_acres" name="area_acres" type="text" inputmode="decimal" maxlength="32" required aria-describedby="edit-area-hint edit-area_acres-error">
+                      <p id="edit-area-hint" class="hint">Enter 0.001 to 999999.999 acres, with at most 3 decimal places. Existing stored precision is preserved if unchanged.</p>
+                      <p id="edit-area_acres-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-location">Location (optional)</label>
+                      <input id="edit-location" name="location" type="text" maxlength="150" aria-describedby="edit-location-error">
+                      <p id="edit-location-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-soil_type">Soil Type (optional)</label>
+                      <input id="edit-soil_type" name="soil_type" type="text" maxlength="100" aria-describedby="edit-soil_type-error">
+                      <p id="edit-soil_type-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-farming_type">Farming Type (optional)</label>
+                      <input id="edit-farming_type" name="farming_type" type="text" maxlength="100" placeholder="e.g., Rain-fed or Irrigated" aria-describedby="edit-farming_type-error">
+                      <p id="edit-farming_type-error" class="field-error" hidden></p>
+                    </div>
+                  </div>
+                  <div class="plot-card-actions">
+                    <button id="save-plot-changes" type="submit" class="submit-button plot-toggle-button">Save Changes</button>
+                    <button id="cancel-plot-edit" type="button" class="plot-secondary-button">Cancel</button>
+                  </div>
+                </fieldset>
+              </form>
+            </div>
+          </div>
           <div class="plot-card-actions">
             <button type="button" id="toggle-add-plot" class="submit-button plot-toggle-button" aria-expanded="false" aria-controls="add-plot" disabled>+ Add Farm Plot</button>
             <button type="button" id="refresh-plots" class="plot-secondary-button" disabled>Refresh plots</button>
