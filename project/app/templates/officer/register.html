@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create an Officer Account | FarmAdvis</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/registration.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/officer-registration.css') }}">
+  <script src="{{ url_for('static', filename='javascript/officer-registration.js') }}" defer></script>
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="{{ url_for('officer.registration_page') }}"><span class="brand-mark" aria-hidden="true">FA</span>FarmAdvis</a><span class="county">Uasin Gishu, Kenya</span></header>
+  <main class="registration-layout">
+    <section class="introduction" aria-labelledby="intro-title">
+      <p class="eyebrow">For agricultural officers</p>
+      <h1 id="intro-title">Support farmers.<br>Strengthen harvests.</h1>
+      <p>Register your interest in supporting maize farmers through FarmAdvis.</p>
+      <div class="intro-note"><span class="note-line" aria-hidden="true"></span><p>Start with your details.<br><strong>Administrator approval is required.</strong></p></div>
+    </section>
+    <section class="form-card" aria-labelledby="form-title">
+      <p class="eyebrow">Agricultural officer registration</p>
+      <h2 id="form-title">Create your account</h2>
+      <div id="officer-form-content">
+        <p class="form-intro">Fields marked <span aria-hidden="true">*</span> are required. Your account will be pending administrator approval.</p>
+        <noscript><p class="notice error-summary">Enable JavaScript to register securely.</p></noscript>
+        <div id="officer-error" class="notice error-summary" role="alert" tabindex="-1" hidden></div>
+        {% macro text_field(name, label, autocomplete, maxlength, required=true, type='text') %}
+        <div class="field">
+          <label for="{{ name }}">{{ label }}{% if required %} <span aria-hidden="true">*</span>{% else %} <span class="optional">(optional)</span>{% endif %}</label>
+          <input id="{{ name }}" name="{{ name }}" type="{{ type }}" autocomplete="{{ autocomplete }}" maxlength="{{ maxlength }}" {% if required %}required{% endif %} aria-describedby="{{ name }}-error">
+          <p class="field-error" id="{{ name }}-error" hidden></p>
+        </div>
+        {% endmacro %}
+        <form id="officer-registration-form" action="{{ url_for('officer.register') }}" method="post" novalidate>
+          <fieldset id="officer-fields">
+            <legend class="visually-hidden">Officer registration details</legend>
+            <div class="name-fields">
+              {{ text_field('first_name', 'First name', 'given-name', 100) }}
+              {{ text_field('last_name', 'Last name', 'family-name', 100) }}
+            </div>
+            {{ text_field('email', 'Email', 'email', 254, type='email') }}
+            {% for name, label in [('password', 'Password'), ('password_confirmation', 'Confirm password')] %}
+            <div class="field">
+              <label for="{{ name }}">{{ label }} <span aria-hidden="true">*</span></label>
+              <div class="password-control">
+                <input id="{{ name }}" name="{{ name }}" type="password" autocomplete="new-password" minlength="8" maxlength="1024" required aria-describedby="{{ name }}-hint {{ name }}-error">
+                <button id="{{ name }}-toggle" class="password-toggle" type="button" aria-controls="{{ name }}" aria-label="Show {{ label|lower }}" aria-pressed="false" hidden>Show</button>
+              </div>
+              <p class="hint" id="{{ name }}-hint">{% if name == 'password' %}Use 8–1024 characters.{% else %}Enter the same password again.{% endif %}</p>
+              <p class="field-error" id="{{ name }}-error" hidden></p>
+            </div>
+            {% endfor %}
+            {{ text_field('region', 'Region', 'address-level1', 100) }}
+            {{ text_field('organization', 'Organization', 'organization', 150, required=false) }}
+            <button id="officer-submit" class="submit-button" type="submit" disabled>Create Officer Account <span aria-hidden="true">&rarr;</span></button>
+          </fieldset>
+          <p id="officer-status" class="hint" role="status" aria-live="polite"></p>
+          <p class="form-footer">Registration does not log you in. Administrator approval is required before you can log in.</p>
+        </form>
+      </div>
+      <div id="officer-confirmation" class="notice success" role="status" tabindex="-1" hidden>
+        <h3>Registration received</h3>
+        <p>Your officer account is pending administrator approval. You have not been logged in. You can log in only after approval.</p>
+      </div>
+      <p class="form-footer">Registering as a farmer? <a href="{{ url_for('farmer.registration_form') }}">Create a farmer account</a></p>
+    </section>
+  </main>
+  <footer class="site-footer">FarmAdvis &middot; Supporting maize farmers in Uasin Gishu</footer>
+</body>
+</html>
