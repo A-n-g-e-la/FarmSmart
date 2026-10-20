@@ -46,3 +46,54 @@ def get_assigned_farmers(agricultural_officer_id):
                     resource.close()
                 except Exception:
                     logger.warning("Assigned farmer %s cleanup failed.", label)
+
+
+def get_assigned_farmer_plots(agricultural_officer_id, farmer_id):
+    """Read plots only through the requested farmer's current assignment."""
+    if type(agricultural_officer_id) is not int or agricultural_officer_id <= 0:
+        raise ValueError("A validated officer profile ID is required.")
+    not_found = {"ok": False, "code": "not_found", "message": "Farmer not found."}
+    if type(farmer_id) is not int or farmer_id <= 0:
+        return not_found
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        # Authorize and retrieve in one SELECT, avoiding an assignment check on
+        # one connection followed by an unscoped plot read on another. LEFT JOIN
+        # distinguishes an assigned farmer with zero plots from an inaccessible one.
+        cursor.execute(
+            "SELECT f.farmer_id, p.plot_id, p.plot_name, p.area_acres, "
+            "p.location, p.soil_type, p.farming_type FROM farmers AS f "
+            "JOIN users AS u ON u.user_id = f.user_id "
+            "LEFT JOIN farm_plots AS p ON p.farmer_id = f.farmer_id "
+            "WHERE f.farmer_id = %s AND f.assigned_officer_id = %s "
+            "AND u.role = 'farmer' AND u.status = 'active' ORDER BY p.plot_id ASC",
+            (farmer_id, agricultural_officer_id),
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            return not_found
+        # Match farmer plot serialization: allowlisted fields, nullable optional
+        # values, and DECIMAL acreage as text to retain all stored precision.
+        plots = [{
+            "plot_id": row["plot_id"],
+            "plot_name": row["plot_name"],
+            "area_acres": str(row["area_acres"]),
+            "location": row["location"],
+            "soil_type": row["soil_type"],
+            "farming_type": row["farming_type"],
+        } for row in rows if row["plot_id"] is not None]
+        return {"ok": True, "farmer_id": farmer_id, "plots": plots}
+    except Exception:
+        logger.error("Assigned farmer plot retrieval failed.")
+        return {"ok": False, "code": "database_error",
+                "message": "Farm plots could not be retrieved. Try again later."}
+    finally:
+        for label, resource in (("cursor", cursor), ("connection", connection)):
+            if resource is not None:
+                try:
+                    resource.close()
+                except Exception:
+                    logger.warning("Assigned farmer plot %s cleanup failed.", label)
