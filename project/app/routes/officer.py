@@ -6,6 +6,7 @@ from flask import Blueprint, g, jsonify, render_template, request, session
 from app.security import csrf_token, officer_required, valid_csrf
 from app.services.officer_authentication_service import authenticate_officer
 from app.services.officer_registration_service import register_officer
+from app.services.officer_farmer_service import get_assigned_farmers
 
 
 officer_bp = Blueprint("officer", __name__, url_prefix="/officer")
@@ -31,6 +32,13 @@ def login_page():
 @officer_required
 def dashboard():
     return render_template("officer/landing.html")
+
+
+@officer_bp.get("/api/farmers")
+@officer_required
+def assigned_farmers():
+    result = get_assigned_farmers(g.officer_identity["agricultural_officer_id"])
+    return jsonify(result), 200 if result["ok"] else 503
 
 
 @officer_bp.route("/register", methods=["GET", "POST"])
