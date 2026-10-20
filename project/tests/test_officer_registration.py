@@ -268,7 +268,7 @@ class OfficerRegistrationEndpointTests(unittest.TestCase):
             for key in ("user_id", "farmer_id", "officer_id", "agricultural_officer_id", "authenticated_at", "officer_registration_csrf"):
                 self.assertNotIn(key, session)
         self.assertEqual(self.client.get("/farmer/home").status_code, 401)
-        self.assertEqual(self.client.get("/officer/home").status_code, 404)
+        self.assertEqual(self.client.get("/officer/home").status_code, 401)
         self.assertEqual(self.client.post("/officer/register", json=registration_data(), headers={"X-CSRF-Token": token}).status_code, 403)
 
     def test_csrf_missing_wrong_unicode_and_farmer_scopes_are_rejected(self):

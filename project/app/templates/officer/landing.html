@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Officer Welcome | FarmAdvis</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/registration.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/officer-auth.css') }}">
+  <script src="{{ url_for('static', filename='javascript/officer-auth.js') }}" defer></script>
+</head>
+<body>
+  <header class="site-header"><span class="brand"><span class="brand-mark" aria-hidden="true">FA</span>FarmAdvis</span><span class="county">Uasin Gishu, Kenya</span></header>
+  <main class="officer-landing">
+    <section class="form-card" aria-labelledby="welcome-title">
+      <h1 id="welcome-title">Welcome, agricultural officer.</h1>
+      <div id="officer-logout-error" class="notice error-summary" role="alert" tabindex="-1" hidden></div>
+      <button id="officer-logout-button" class="submit-button" type="button" disabled>Logout</button>
+      <p id="officer-logout-status" class="hint" role="status" aria-live="polite"></p>
+      <p id="officer-login-again" hidden><a href="{{ url_for('officer.login_page') }}">Log in again</a></p>
+      <noscript><p class="notice">Enable JavaScript and reload this page to log out securely.</p></noscript>
+    </section>
+  </main>
+</body>
+</html>

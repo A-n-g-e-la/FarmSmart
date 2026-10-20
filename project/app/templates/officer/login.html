@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Officer Login | FarmAdvis</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/registration.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/officer-auth.css') }}">
+  <script src="{{ url_for('static', filename='javascript/officer-auth.js') }}" defer></script>
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="{{ url_for('officer.login_page') }}"><span class="brand-mark" aria-hidden="true">FA</span>FarmAdvis</a><span class="county">Uasin Gishu, Kenya</span></header>
+  <main class="registration-layout login-layout">
+    <section class="introduction" aria-labelledby="intro-title">
+      <p class="eyebrow">For agricultural officers</p>
+      <h1 id="intro-title">Support farmers.<br>Strengthen harvests.</h1>
+      <p>Welcome back. Log in to your approved FarmAdvis officer account.</p>
+      <div class="intro-note"><span class="note-line" aria-hidden="true"></span><p>Supporting farmers.<br><strong>Growing possibilities.</strong></p></div>
+    </section>
+    <section class="form-card" aria-labelledby="form-title">
+      <p class="eyebrow">Agricultural officer login</p>
+      <h2 id="form-title">Welcome back</h2>
+      <p class="form-intro">Enter your registered email and password. Both fields are required. Administrator approval is required before login.</p>
+      <div id="officer-login-error" class="notice error-summary" role="alert" tabindex="-1" hidden></div>
+      <form id="officer-login-form" method="post" action="{{ url_for('officer.login') }}" novalidate>
+        <fieldset id="officer-login-fields">
+          <legend class="visually-hidden">Officer login credentials</legend>
+          <div class="field">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" autocomplete="username" maxlength="254" required aria-describedby="email-error">
+            <p id="email-error" class="field-error" hidden></p>
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <div class="password-control">
+              <input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required aria-describedby="password-error">
+              <button id="officer-password-toggle" class="password-toggle" type="button" aria-controls="password" aria-label="Show password" aria-pressed="false" hidden>Show</button>
+            </div>
+            <p id="password-error" class="field-error" hidden></p>
+          </div>
+          <button id="officer-login-button" class="submit-button" type="submit" disabled>Log in <span aria-hidden="true">&rarr;</span></button>
+        </fieldset>
+        <p id="officer-login-status" class="hint login-status" role="status" aria-live="polite"></p>
+        <noscript><p class="notice">Enable JavaScript and reload this page to log in securely.</p></noscript>
+      </form>
+      <p class="form-footer">New to FarmAdvis? <a href="{{ url_for('officer.registration_page') }}">Create an officer account</a></p>
+    </section>
+  </main>
+  <footer class="site-footer">FarmAdvis &middot; Supporting maize farmers in Uasin Gishu</footer>
+</body>
+</html>

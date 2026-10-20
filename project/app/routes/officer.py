@@ -1,8 +1,10 @@
+import time
 from collections.abc import Mapping
 
-from flask import Blueprint, jsonify, render_template, request, session
+from flask import Blueprint, g, jsonify, render_template, request, session
 
-from app.security import csrf_token, valid_csrf
+from app.security import csrf_token, officer_required, valid_csrf
+from app.services.officer_authentication_service import authenticate_officer
 from app.services.officer_registration_service import register_officer
 
 
@@ -18,6 +20,17 @@ def officer_cache_control(response):
 @officer_bp.get("/register-page")
 def registration_page():
     return render_template("officer/register.html")
+
+
+@officer_bp.get("/login-page")
+def login_page():
+    return render_template("officer/login.html")
+
+
+@officer_bp.get("/dashboard")
+@officer_required
+def dashboard():
+    return render_template("officer/landing.html")
 
 
 @officer_bp.route("/register", methods=["GET", "POST"])
@@ -43,3 +56,51 @@ def register():
         "validation_error": 400, "duplicate_email": 409, "database_error": 503,
     }.get(result["code"], 500)
     return jsonify(result), status
+
+
+@officer_bp.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        return jsonify({"ok": True, "csrf_token": csrf_token("officer_login")})
+    if request.is_json:
+        data = request.get_json(silent=True)
+    elif request.mimetype in ("application/x-www-form-urlencoded", "multipart/form-data"):
+        data = request.form
+    else:
+        return jsonify({"ok": False, "code": "validation_error", "message": "Send JSON or form data."}), 415
+    if not isinstance(data, Mapping):
+        return jsonify({"ok": False, "code": "validation_error", "message": "Provide a credentials object."}), 400
+    token = request.headers.get("X-CSRF-Token") or data.get("csrf_token", "")
+    if not valid_csrf("officer_login", token):
+        return jsonify({"ok": False, "code": "csrf_error", "message": "The request could not be verified."}), 400
+    # Match farmer account-switching semantics: no prior identity survives a
+    # CSRF-verified login attempt, including an unsuccessful attempt.
+    session.clear()
+    result = authenticate_officer(data.get("email"), data.get("password"))
+    if not result["ok"]:
+        result = dict(result, csrf_token=csrf_token("officer_login"))
+        return jsonify(result), 401 if result["code"] == "invalid_credentials" else 503
+    session.permanent = True
+    session["user_id"] = result["identity"]["user_id"]
+    session["agricultural_officer_id"] = result["identity"]["agricultural_officer_id"]
+    session["authenticated_at"] = time.time()
+    return jsonify(dict(result, csrf_token=csrf_token("officer_logout")))
+
+
+@officer_bp.get("/home")
+@officer_required
+def home():
+    # Temporary backend response: no farmer data or dashboard implementation.
+    return jsonify({"ok": True, "identity": g.officer_identity,
+                    "csrf_token": csrf_token("officer_logout")})
+
+
+@officer_bp.post("/logout")
+@officer_required
+def logout():
+    data = request.get_json(silent=True) if request.is_json else request.form
+    token = request.headers.get("X-CSRF-Token") or (data.get("csrf_token", "") if isinstance(data, Mapping) else "")
+    if not valid_csrf("officer_logout", token):
+        return jsonify({"ok": False, "code": "csrf_error", "message": "The request could not be verified."}), 400
+    session.clear()
+    return jsonify({"ok": True, "message": "Logged out successfully."})
