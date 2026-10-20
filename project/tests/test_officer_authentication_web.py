@@ -76,7 +76,7 @@ class OfficerAuthenticationWebTests(unittest.TestCase):
             with self.client.get(asset) as asset_response:
                 self.assertEqual(asset_response.status_code, 200)
 
-    def test_landing_is_protected_and_exposes_only_welcome_and_logout_controls(self):
+    def test_dashboard_is_protected_and_exposes_read_only_farmer_and_plot_panels(self):
         self.sign_in()
         with patch("app.security.get_active_officer_identity", return_value={"ok": True, "identity": self.identity}) as lookup:
             response = self.client.get("/officer/dashboard")
@@ -91,6 +91,21 @@ class OfficerAuthenticationWebTests(unittest.TestCase):
         self.assertIn("disabled", page.elements["officer-logout-button"])
         self.assertEqual(page.elements["officer-logout-error"]["role"], "alert")
         self.assertEqual(page.inputs, {})
+        self.assertIn("Officer Dashboard | FarmAdvis", html)
+        self.assertIn("Total assigned farmers", html)
+        self.assertIn("Total registered plots", html)
+        for identifier in ("assigned-count", "assigned-plot-count", "assigned-farmers", "farmer-plots", "selected-farmer"):
+            self.assertIn(identifier, page.elements)
+        for identifier in ("farmers-refresh", "plots-retry", "officer-logout-button"):
+            self.assertEqual(page.elements[identifier]["type"], "button")
+        for identifier in ("farmers-status", "farmer-plots-status"):
+            self.assertEqual(page.elements[identifier]["role"], "status")
+        self.assertIn("/static/javascript/officer-dashboard.js", page.assets)
+        self.assertIn("/static/css/officer-dashboard.css", page.assets)
+        self.assertIn("/static/javascript/officer-auth.js", page.assets)
+        self.assertNotIn("<form", html)
+        for action in ("Edit Plot", "Delete Plot", "Add Farm Plot", "Assign farmer"):
+            self.assertNotIn(action, html)
         for forbidden in ("user_id", "agricultural_officer_id", "password_hash", "/farmer/", "csrf_token", "<canvas"):
             self.assertNotIn(forbidden, html)
         for asset in page.assets:

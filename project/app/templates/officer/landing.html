@@ -3,22 +3,51 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Officer Welcome | FarmAdvis</title>
+  <title>Officer Dashboard | FarmAdvis</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/registration.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/officer-auth.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/officer-dashboard.css') }}">
   <script src="{{ url_for('static', filename='javascript/officer-auth.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='javascript/officer-dashboard.js') }}" defer></script>
 </head>
 <body>
   <header class="site-header"><span class="brand"><span class="brand-mark" aria-hidden="true">FA</span>FarmAdvis</span><span class="county">Uasin Gishu, Kenya</span></header>
-  <main class="officer-landing">
-    <section class="form-card" aria-labelledby="welcome-title">
+  <a class="skip-link" href="#officer-dashboard">Skip to dashboard</a>
+  <main id="officer-dashboard" class="officer-shell">
+    <section class="welcome-panel" aria-labelledby="welcome-title">
+      <p class="eyebrow">Agricultural officer dashboard</p>
       <h1 id="welcome-title">Welcome, agricultural officer.</h1>
+      <p>View your assigned farmers and their registered farm plots.</p>
       <div id="officer-logout-error" class="notice error-summary" role="alert" tabindex="-1" hidden></div>
-      <button id="officer-logout-button" class="submit-button" type="button" disabled>Logout</button>
+      <button id="officer-logout-button" class="submit-button logout-button" type="button" disabled>Logout</button>
       <p id="officer-logout-status" class="hint" role="status" aria-live="polite"></p>
       <p id="officer-login-again" hidden><a href="{{ url_for('officer.login_page') }}">Log in again</a></p>
       <noscript><p class="notice">Enable JavaScript and reload this page to log out securely.</p></noscript>
     </section>
+    <p id="dashboard-session" class="notice error-summary" role="alert" hidden></p>
+    <p id="dashboard-reload" hidden><a href="{{ url_for('officer.dashboard') }}">Reload dashboard</a></p>
+    <div id="officer-data">
+      <section class="officer-summary" aria-label="Assignment summary">
+        <dl><div><dt>Total assigned farmers</dt><dd id="assigned-count">Not loaded yet</dd></div><div><dt>Total registered plots</dt><dd id="assigned-plot-count">Not loaded yet</dd></div></dl>
+      </section>
+      <div class="officer-columns">
+        <section id="assigned-farmers-panel" class="dashboard-card" aria-labelledby="assigned-title">
+          <div class="card-heading"><h2 id="assigned-title">Assigned farmers</h2><button id="farmers-refresh" class="officer-button" type="button" disabled>Refresh list</button></div>
+          <p id="farmers-status" role="status" aria-live="polite">Enable JavaScript to load your assigned farmers.</p>
+          <p id="farmers-error" class="notice error-summary" role="alert" hidden></p>
+          <ul id="assigned-farmers" class="officer-farmers" aria-label="Select an assigned farmer"></ul>
+        </section>
+        <section id="farmer-plots-panel" class="dashboard-card" aria-labelledby="farmer-plots-title">
+          <h2 id="farmer-plots-title">Farmer farm plots</h2>
+          <p id="selected-farmer"></p>
+          <p id="farmer-plots-status" role="status" aria-live="polite">Select a farmer to view their registered farm plots.</p>
+          <p id="farmer-plots-error" class="notice error-summary" role="alert" hidden></p>
+          <button id="plots-retry" class="officer-button" type="button" hidden>Retry loading plots</button>
+          <div id="farmer-plots" class="officer-plots"></div>
+        </section>
+      </div>
+    </div>
   </main>
 </body>
 </html>
