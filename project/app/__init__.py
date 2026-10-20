@@ -4,7 +4,7 @@ from flask import Flask
 from app.config import Config
 from app.routes.farmer import farmer_bp
 from app.routes.officer import officer_bp
-from app.cli import approve_officer_command
+from app.cli import approve_officer_command, assign_farmer_command
 
 def create_app():
     app = Flask(__name__)
@@ -18,5 +18,6 @@ def create_app():
     app.register_blueprint(farmer_bp)
     app.register_blueprint(officer_bp)
     app.cli.add_command(approve_officer_command)
+    app.cli.add_command(assign_farmer_command)
 
     return app
