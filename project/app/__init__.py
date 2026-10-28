@@ -4,6 +4,7 @@ from flask import Flask
 from app.config import Config
 from app.routes.farmer import farmer_bp
 from app.routes.officer import officer_bp
+from app.routes.ussd import ussd_bp
 from app.cli import approve_officer_command, assign_farmer_command
 
 def create_app():
@@ -17,6 +18,7 @@ def create_app():
     # Register farmer registration, backend login, protected home, and logout routes.
     app.register_blueprint(farmer_bp)
     app.register_blueprint(officer_bp)
+    app.register_blueprint(ussd_bp)
     app.cli.add_command(approve_officer_command)
     app.cli.add_command(assign_farmer_command)
 
