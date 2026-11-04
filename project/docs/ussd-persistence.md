@@ -1,8 +1,10 @@
 # Stage 2B: USSD persistence contract
 
-Implemented storage only. The Stage 1 callback does not import or call this
-repository. PIN enrollment, PIN hashing/verification, lockout decisions, account
-authorization, plot selection, predictions, and SMS remain unimplemented.
+This document describes the Stage 2B storage layer. The Stage 1 callback does not
+import or call this repository. Stage 2C.1 adds standalone PIN cryptography;
+see [PIN cryptography](ussd-pin-cryptography.md). PIN enrollment, live verification,
+lockout decisions, account authorization, plot selection, predictions, and SMS
+remain unimplemented.
 
 ## Storage and secrets
 

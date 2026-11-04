@@ -7,6 +7,10 @@ load_dotenv()
 
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY")
+    # Validated only when PIN helpers are used; never generated or defaulted.
+    USSD_PIN_PEPPERS = os.getenv("USSD_PIN_PEPPERS")
+    USSD_PIN_CURRENT_KEY_VERSION = os.getenv("USSD_PIN_CURRENT_KEY_VERSION")
+    USSD_METADATA_HMAC_KEY = os.getenv("USSD_METADATA_HMAC_KEY")
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     PERMANENT_SESSION_LIFETIME = timedelta(minutes=30)
