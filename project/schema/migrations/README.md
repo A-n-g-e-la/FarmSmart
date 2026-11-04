@@ -80,3 +80,71 @@ Simply renaming populated hectare values would change their meaning.
 
 MariaDB references: [anonymous blocks](https://mariadb.com/docs/server/reference/sql-statements/programmatic-compound-statements/begin-end),
 [implicit commits](https://mariadb.com/docs/server/reference/sql-statements/transactions/sql-statements-that-cause-an-implicit-commit).
+
+# USSD authentication storage: 002 (NOT EXECUTED)
+
+`002_ussd_authentication.sql` adds only `farmer_ussd_credentials`,
+`ussd_sessions`, and `ussd_callback_results`. It does not alter or backfill
+`users`, `farmers`, `farm_plots`, or officer records. Existing farmers remain
+unenrolled. The canonical `schema.sql` includes the identical new definitions
+for fresh installations only; never run that whole file on an existing database.
+
+Repository schema inspection found `farmers.farmer_id BIGINT UNSIGNED NOT NULL`
+as its single-column primary key, with InnoDB and restrictive foreign keys.
+The new references match those types and conventions. The callback-result
+foreign key alone uses `ON DELETE CASCADE`, limited to results belonging to a
+deleted USSD session. The migration preflights the farmer key/engine and refuses
+to proceed if any of the three destination tables already exists.
+
+Prerequisites for a later, separately approved execution:
+
+1. Review the SQL and obtain explicit migration execution approval. Stage 2B
+   authorizes file preparation only. No migration has been executed or tested
+   against a real database during this stage.
+2. Verify the intended MariaDB server (10.4+), database, privileges, InnoDB,
+   enabled foreign-key/check-constraint enforcement, and strict SQL mode. Verify
+   a current restorable backup in protected storage. Do not rely on an older
+   acreage-migration backup without checking its currency and availability.
+3. Pause all USSD writers and migration operators. Leave them paused until the
+   tables and matching application release are verified. The variables below
+   record operator confirmations; they do not pause writers or prove a backup.
+4. From the repository root, open an authorized client with credentials from a
+   protected option file or an interactive password prompt. For example, after
+   substituting the approved host/user/database:
+
+   ```powershell
+   mariadb --abort-source-on-error --host=APPROVED_HOST --user=APPROVED_USER --password --database=APPROVED_DATABASE
+   ```
+
+5. Only after approval and verification, in that same client session:
+
+   ```sql
+   SET SESSION time_zone = '+00:00';
+   SET @farmadvis_ussd_migration_approved = 1;
+   SET @farmadvis_backup_verified = 1;
+   SET @farmadvis_ussd_writes_paused = 1;
+   SOURCE project/schema/migrations/002_ussd_authentication.sql;
+   ```
+
+6. Inspect all three `SHOW CREATE TABLE` results, constraints, indexes, and
+   initial zero row counts before enabling USSD persistence. Confirm existing
+   farmer/officer/plot records are unchanged using the approved verification
+   procedure. Do not enroll farmers or invoke authentication as a migration test.
+
+**MariaDB DDL implicitly commits.** The three CREATE statements are not one
+atomic migration; a later failure may leave earlier tables created. Do not use
+`--force`, disable constraint checks, use `CREATE OR REPLACE`, or blindly retry a
+partial application. The preflight intentionally refuses reruns. Inspect actual
+state and prepare a reviewed recovery/completion plan; do not drop real data.
+`--abort-source-on-error` is required so a failed preflight stops the sourced
+file before CREATE statements.
+
+The migration has no dependency on the acreage migration's application: it
+references only `farmers.farmer_id`. Later plot services still require their own
+schema compatibility check. No schema migration is run on application startup.
+
+Persistence API, secret handling, transaction rules, retry behavior, and pending
+Stage 2C decisions: [USSD persistence contract](../../docs/ussd-persistence.md).
+
+MariaDB client reference:
+[abort-source-on-error](https://mariadb.com/docs/server/clients-and-utilities/mariadb-client/mariadb-command-line-client).
