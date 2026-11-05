@@ -4,6 +4,10 @@ No route imports this service. Stage 1's `/ussd` menu, web-password login, PIN
 enrollment, plots, recommendations, and SMS are unchanged. No database or
 migration was accessed/executed during implementation or testing.
 
+Stage 2C.2B.2 adds an opt-in [callback persistence foundation](ussd-callback-foundation.md).
+It still does not call this service: candidate identification and PIN verification
+remain disconnected, including when the new persistence flag is enabled.
+
 ## Inspection and minimal repository extensions
 
 The repository schema defines `users.phone_number VARCHAR(20)` with

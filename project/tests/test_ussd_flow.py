@@ -16,7 +16,7 @@ class UssdCallbackTests(unittest.TestCase):
         self.connector = guard.start()
         self.addCleanup(guard.stop)
         self.app = create_app()
-        self.app.config.update(TESTING=True, SECRET_KEY="isolated-ussd-test-key")
+        self.app.config.update(TESTING=True, SECRET_KEY="isolated-ussd-test-key", USSD_PERSISTENT_FLOW_ENABLED=False)
         self.client = self.app.test_client()
         self.payload = {
             "sessionId": "ATUid_test-session.1:2",
