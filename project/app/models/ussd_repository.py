@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 SAFE_RESPONSES = {
     "welcome": "CON Welcome to FarmAdvis\n1. Request maize advice\n0. Exit",
     "pin_prompt": "CON Enter your 4-digit FarmAdvis PIN\n0. Exit",
+    "pin_verified": "CON PIN verified.",
     "exit": "END Thank you for using FarmAdvis.",
     "verification_failed": "END Verification could not be completed. Please use the farmer portal or try again later.",
     "verification_unavailable": "END Account verification is not yet available. Please try again later.",
@@ -97,6 +98,39 @@ class _UssdRepository:
         self._active = True
         self._rollback_only = False
         self._failed = False
+
+    @_operation
+    def get_farmer_by_phone(self, normalized_phone):
+        """Lock user then profile; never fetch a web password or expose identity."""
+        if not isinstance(normalized_phone, str) or not re.fullmatch(r"\+254[17][0-9]{8}", normalized_phone):
+            raise UssdValidationError("A normalized Kenyan mobile number is required.")
+        # Repository schema has uq_users_phone_number and uq_farmers_user_id.
+        self._cursor.execute(
+            "SELECT user_id, role, status FROM users WHERE phone_number = %s FOR UPDATE",
+            (normalized_phone,),
+        )
+        user = self._cursor.fetchone()
+        if user is None:
+            return None
+        self._cursor.execute(
+            "SELECT farmer_id, user_id FROM farmers WHERE user_id = %s FOR UPDATE", (user["user_id"],),
+        )
+        farmer = self._cursor.fetchone()
+        return {"user_id": user["user_id"], "role": user["role"], "status": user["status"],
+                "farmer_id": farmer["farmer_id"] if farmer is not None and farmer["user_id"] == user["user_id"] else None}
+
+    @_operation
+    def bind_candidate(self, session_key, farmer_id, now):
+        """Only bind an unverified welcome session, never switch farmers."""
+        if farmer_id is not None:
+            _id(farmer_id)
+            self.get_credentials(farmer_id)
+        record = self.get_session(session_key)
+        if (record is None or record["state"] != "welcome" or session_expired(record, now)
+                or record["farmer_id"] not in (None, farmer_id)):
+            raise UssdConflictError("USSD candidate binding refused.")
+        self._cursor.execute("UPDATE ussd_sessions SET farmer_id = %s WHERE session_key = %s",
+                             (farmer_id, session_key))
 
     @_operation
     def get_credentials(self, farmer_id):
@@ -202,9 +236,25 @@ class _UssdRepository:
                 or record["state"] != "pin" or session_expired(record, now)):
             raise UssdConflictError("USSD verification metadata refused.")
         self._cursor.execute(
-            "UPDATE ussd_sessions SET state = 'verified', verified_pin_version = %s, authenticated_at = %s "
-            "WHERE session_key = %s", (pin_version, _utc(now), session_key),
+            # DATETIME(6) values use naive UTC, not the connection's time zone.
+            # UTC_TIMESTAMP(6) is evaluated by this statement, not by Python
+            # before potentially delayed reads/writes. Credential/session locks
+            # remain held through this update and the enclosing commit.
+            "UPDATE ussd_sessions SET state = 'verified', verified_pin_version = %s, "
+            "authenticated_at = UTC_TIMESTAMP(6) "
+            "WHERE session_key = %s AND farmer_id = %s AND state = 'pin' "
+            "AND verified_pin_version IS NULL AND authenticated_at IS NULL "
+            "AND created_at <= UTC_TIMESTAMP(6) AND expires_at > UTC_TIMESTAMP(6) "
+            "AND EXISTS (SELECT 1 FROM farmer_ussd_credentials AS credential "
+            "WHERE credential.farmer_id = %s AND credential.pin_version = %s "
+            "AND credential.pin_hash IS NOT NULL "
+            "AND (credential.locked_until IS NULL OR credential.locked_until <= UTC_TIMESTAMP(6)))",
+            (pin_version, session_key, farmer_id, farmer_id, pin_version),
         )
+        if self._cursor.rowcount != 1:
+            # Poison the whole transaction, including attempts and callback
+            # results already written. A zero-row update is never a success.
+            raise UssdConflictError("USSD verification transition refused.")
 
     @_operation
     def end_farmer_sessions(self, farmer_id):

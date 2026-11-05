@@ -11,6 +11,8 @@ from functools import wraps
 from flask import current_app
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from app.services.ussd_hash_capacity import scrypt_slot
+
 
 HASH_METHOD = "scrypt:131072:8:1"
 SALT_LENGTH = 32
@@ -28,6 +30,10 @@ class UssdPinConfigurationError(UssdPinError):
 
 class UssdPinValidationError(UssdPinError, ValueError):
     """Invalid enrollment input with a fixed, non-sensitive message."""
+
+
+class UssdPinCredentialError(UssdPinError):
+    """Stored credential integrity failure, not an incorrect PIN attempt."""
 
 
 def _safe_operation(method):
@@ -126,6 +132,17 @@ def _peppered_pin(key, farmer_id, version, pin):
 
 
 @_safe_operation
+def validate_ussd_pin_credential(pin_hash, pin_key_version):
+    """Validate storage/key availability without hashing or counting attempts."""
+    if (not isinstance(pin_hash, str) or len(pin_hash) > 255
+            or not _HASH_PATTERN.fullmatch(pin_hash) or not _valid_version(pin_key_version)):
+        raise UssdPinCredentialError("USSD PIN verification is unavailable.")
+    keys, _ = _load_keyring()
+    if pin_key_version not in keys:
+        raise UssdPinConfigurationError(_CONFIG_MESSAGE)
+
+
+@_safe_operation
 def hash_ussd_pin(farmer_id, pin):
     """Return only the hash and pepper version for future repository storage."""
     if not _valid_pin(pin):
@@ -133,10 +150,11 @@ def hash_ussd_pin(farmer_id, pin):
     if not _valid_farmer_id(farmer_id):
         raise UssdPinValidationError("A valid farmer ID is required.")
     keys, version = _load_keyring()
-    encoded = generate_password_hash(
-        _peppered_pin(keys[version], farmer_id, version, pin),
-        method=HASH_METHOD, salt_length=SALT_LENGTH,
-    )
+    with scrypt_slot():
+        encoded = generate_password_hash(
+            _peppered_pin(keys[version], farmer_id, version, pin),
+            method=HASH_METHOD, salt_length=SALT_LENGTH,
+        )
     if not isinstance(encoded, str) or not _HASH_PATTERN.fullmatch(encoded):
         raise UssdPinError("USSD PIN operation could not be completed.")
     return {"pin_hash": encoded, "pin_key_version": version}
@@ -156,6 +174,7 @@ def verify_ussd_pin(farmer_id, pin, pin_hash, pin_key_version):
     keys, _ = _load_keyring()
     if pin_key_version not in keys:
         raise UssdPinConfigurationError(_CONFIG_MESSAGE)
-    return check_password_hash(
-        pin_hash, _peppered_pin(keys[pin_key_version], farmer_id, pin_key_version, pin),
-    )
+    with scrypt_slot():
+        return check_password_hash(
+            pin_hash, _peppered_pin(keys[pin_key_version], farmer_id, pin_key_version, pin),
+        )

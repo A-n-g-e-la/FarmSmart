@@ -5,6 +5,12 @@ This module provides `hash_ussd_pin(farmer_id, pin)` and
 application context. It opens no connection, writes no records, changes no
 routes, and implements no enrollment, account authorization, attempt counter,
 lockout, plot, or SMS workflow. Existing web-password authentication is unchanged.
+Stage 2C.2A adds a separate [offline authentication service](ussd-authentication-service.md)
+and a shared non-waiting, process-wide scrypt gate inside both public crypto
+helpers. One operation per process is admitted; callers cannot bypass that gate
+by using the hashing helper directly. `validate_ussd_pin_credential` additionally
+checks stored format and pepper availability without hashing, raising a fixed
+operational error instead of treating malformed storage as a wrong PIN.
 
 ## Compatibility and algorithm
 
@@ -93,3 +99,7 @@ These helpers do not equalize account lookup timing: unknown-account dummy work,
 active-status checks, callback-origin verification, expiry, lockout, duplicate
 handling, and revalidated plot ownership remain future integration work. A
 four-digit PIN still needs strict online attempt limits before live use.
+The offline Stage 2C.2A service now provides transactionally consistent attempt
+limits; callback origin verification, ingress limits, and live wiring remain
+Stage 2C.2B work. Capacity saturation and crypto errors are operational failures,
+never wrong-PIN attempts.

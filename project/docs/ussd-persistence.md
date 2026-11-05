@@ -2,7 +2,9 @@
 
 This document describes the Stage 2B storage layer. The Stage 1 callback does not
 import or call this repository. Stage 2C.1 adds standalone PIN cryptography;
-see [PIN cryptography](ussd-pin-cryptography.md). PIN enrollment, live verification,
+Stage 2C.2A adds an [offline authentication service](ussd-authentication-service.md)
+and guarded candidate lookup/binding. See also [PIN cryptography](ussd-pin-cryptography.md).
+PIN enrollment, live verification,
 lockout decisions, account authorization, plot selection, predictions, and SMS
 remain unimplemented.
 
@@ -52,13 +54,15 @@ Public methods:
 
 | Operation | Contract |
 | --- | --- |
+| `get_farmer_by_phone` | Lock the canonical phone's user then farmer profile, without fetching a web hash. |
+| `bind_candidate` | Bind only a live welcome session; never switch an already bound farmer. |
 | `get_credentials` | Locked credential read, including both channels' counters/lockouts. |
 | `ensure_credentials` | Idempotent unenrolled-row creation without changing an existing credential. |
 | `replace_pin_hash` | Accept an encoded scrypt hash and pepper version; increment PIN version, clear counters/lockouts, and end farmer sessions in the same transaction. |
 | `set_attempt_state` | Persist a caller-computed count and lockout for USSD or web reverification. Does not decide whether an attempt failed or a lockout expired. |
 | `create_session`, `get_session` | Insert once or retrieve by derived key; never overwrite a duplicate session. |
 | `set_session_state` | Enter PIN state from a live welcome session, or end a session and clear verification metadata. |
-| `mark_verified` | Store a matching enrolled credential version for the session's candidate farmer; refuse wrong candidate, version, state, or expiry. Not a PIN or account verifier. |
+| `mark_verified` | Conditionally store a matching enrolled credential version for the candidate farmer, with PIN state, empty verification metadata, and database-UTC lifetime/credential checks. Require exactly one affected row or poison and roll back the whole transaction. Not a PIN or account verifier. |
 | `end_farmer_sessions` | Lock the farmer credential then end that farmer's sessions and clear verification metadata. |
 | `get_callback_result` | Locked lookup by session and input position. A result is not an authorization grant. |
 | `store_callback_result` | Insert a keyed fingerprint and fixed catalog response, and advance the accepted input position atomically. |
@@ -68,6 +72,13 @@ Public methods:
 All supplied times must be timezone-aware. Repository parameters are converted
 to naive UTC for MariaDB `DATETIME(6)`; values returned by the connector are
 interpreted as UTC. State changes do not extend expiry or retention.
+`mark_verified` additionally checks expiry at its final SQL statement using
+`UTC_TIMESTAMP(6)` and uses that same server time for `authenticated_at`, rather
+than trusting an earlier application timestamp. UTC is independent of the
+connection time zone and matches the schema's naive UTC `DATETIME(6)` contract.
+The expected credential version remains locked through the transition/commit.
+A failed conditional update rolls back all earlier counter/callback changes.
+This is a statement-time guard; later protected actions must recheck expiry.
 
 Counts are bounded by schema/API to three USSD and five web failures. These
 bounds reserve the Stage 2A policies, but this layer does not implement lockout
@@ -127,15 +138,16 @@ Do not claim a rollback necessarily undid a lost commit acknowledgement.
 
 ## Limits and pending decisions
 
-- Account eligibility, actual PIN verification, prefix validation, callback
-  origin verification, configured-code matching, and lockout rules belong to
-  Stage 2C/services. Repository access must never be exposed directly as an HTTP
-  operation. No current routes call this layer.
+- The Stage 2C.2A service implements account checks, PIN verification, prefix
+  validation, configured-code matching, and lockout without route integration.
+  Callback origin and ingress controls remain Stage 2C.2B requirements.
+  Repository access must never be exposed directly as an HTTP operation.
+  No current routes call this layer.
 - Session expiry and retention durations are explicit caller inputs. The
   provider retry horizon and cleanup schedule still need approval. Retain replay
   records long enough; deletion removes the ability to recognize old keys.
-- A session candidate can be provided on creation. Deferred phone lookup and
-  candidate binding can be designed when the authentication flow is implemented.
+- A session candidate can be provided on creation or bound by the guarded
+  Stage 2C.2A identification step. Initial session creation remains future work.
 - Mocked tests establish SQL/transaction intent, not real MariaDB constraint,
   DDL, or concurrency behavior. No database was used for Stage 2B.
 - No cleanup scheduler or SMS deduplication/outbox is included. The cleanup

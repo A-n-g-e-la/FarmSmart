@@ -209,7 +209,14 @@ class UssdPersistenceTests(unittest.TestCase):
         self.session["state"] = "pin"
         with ussd_transaction() as store:
             store.mark_verified(SESSION_KEY, 91, 2, NOW)
-        self.assertEqual(self.cursor.execute.call_args.args[1], (2, NOW.replace(tzinfo=None), SESSION_KEY))
+        sql, params = self.cursor.execute.call_args.args
+        self.assertEqual(params, (2, SESSION_KEY, 91, 91, 2))
+        for predicate in ("authenticated_at = UTC_TIMESTAMP(6)", "state = 'pin'",
+                          "farmer_id = %s", "verified_pin_version IS NULL", "authenticated_at IS NULL",
+                          "created_at <= UTC_TIMESTAMP(6)", "expires_at > UTC_TIMESTAMP(6)",
+                          "credential.pin_version = %s", "credential.pin_hash IS NOT NULL",
+                          "credential.locked_until <= UTC_TIMESTAMP(6)"):
+            self.assertIn(predicate, sql)
         for changes in ({"farmer_id": 92}, {"state": "ended"}, {"expires_at": NOW.replace(tzinfo=None)}):
             original = dict(self.session)
             self.session.update(changes)
@@ -220,6 +227,18 @@ class UssdPersistenceTests(unittest.TestCase):
         with self.assertRaises(UssdConflictError):
             with ussd_transaction() as store:
                 store.mark_verified(SESSION_KEY, 91, 1, NOW)
+
+    def test_zero_row_verification_transition_poisons_transaction_even_if_caught(self):
+        self.session["state"] = "pin"
+        self.cursor.rowcount = 0
+        with self.assertRaises(UssdPersistenceError):
+            with ussd_transaction() as store:
+                with self.assertRaisesRegex(UssdConflictError, "USSD verification transition refused"):
+                    store.mark_verified(SESSION_KEY, 91, 2, NOW)
+        self.connection.commit.assert_not_called()
+        self.connection.rollback.assert_called_once_with()
+        self.cursor.close.assert_called_once_with()
+        self.connection.close.assert_called_once_with()
 
     def test_verified_state_cannot_be_set_without_metadata(self):
         with self.assertRaises(ValueError):
