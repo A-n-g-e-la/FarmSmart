@@ -65,7 +65,7 @@ Public methods:
 | `mark_verified` | Conditionally store a matching enrolled credential version for the candidate farmer, with PIN state, empty verification metadata, and database-UTC lifetime/credential checks. Require exactly one affected row or poison and roll back the whole transaction. Not a PIN or account verifier. |
 | `end_farmer_sessions` | Lock the farmer credential then end that farmer's sessions and clear verification metadata. |
 | `get_callback_result` | Locked lookup by session and input position. A result is not an authorization grant. |
-| `store_callback_result` | Insert a keyed fingerprint and fixed catalog response, and advance the accepted input position atomically. |
+| `store_callback_result` | Insert a keyed fingerprint and fixed catalog response, and advance the accepted input position atomically. Menu callers pass `expected_session` and optionally `end_session=True` for a final conditional database-UTC position/state update. Require exactly one affected row. |
 | `cleanup_retained_sessions` | Bounded deletion only when both expiry and retention have elapsed; results cascade with their parent. |
 
 `session_expired(record, now)` is a pure check: ended or `now >= expires_at`.
@@ -105,7 +105,14 @@ Within that single transaction, the future service must:
    the callback result before leaving the transaction. For a terminal response,
    store the result and advance its input position **before** calling
    `set_session_state(..., "ended", ...)`, within this same transaction. A failure
-   in either operation rolls back the whole unit.
+   in either operation rolls back the whole unit. Menu handlers instead pass
+   their locked `expected_session` snapshot and `end_session=True` to
+   `store_callback_result`: the result is inserted first, then one conditional
+   SQL update advances position and ends the session. It checks expected state,
+   position, phone/service/farmer binding, verification metadata and database UTC
+   lifetime. Verified actions also check current credential version and lockout.
+   Zero rows raise a safe conflict and roll back the preceding result insert.
+   The standalone state-changing `set_session_state` also requires one row.
 
 The initial empty callback has position zero. `last_input_count = -1` means no
 accepted result yet; every new insertion advances exactly one position, through

@@ -52,6 +52,9 @@ class OfflineConnector:
         self.on_rollback = lambda: None
         self.hide_initial_lookup_once = False
         self.after_execute = lambda sql: None
+        self.before_menu_update = lambda: None
+        self.current_time = lambda: NOW
+        self.force_menu_zero = False
 
     def connect(self):
         connection, cursor = MagicMock(), MagicMock()
@@ -97,7 +100,28 @@ class OfflineConnector:
                 self.callbacks[key, position] = dict(input_fingerprint=digest, response_text=text,
                                                      response_status=status, created_at=stamp)
             elif sql.startswith("UPDATE ussd_sessions SET last_input_count"):
-                self.sessions[params[1]]["last_input_count"] = params[0]
+                row = self.sessions[params[1]]
+                valid = True
+                if "UTC_TIMESTAMP(6)" in sql:
+                    self.before_menu_update()
+                    position, key, state, previous, farmer, tag, code, version, authenticated = params[:9]
+                    now = self.current_time().replace(tzinfo=None)
+                    valid = (not self.force_menu_zero and row["state"] == state
+                             and row["last_input_count"] == previous and row["farmer_id"] == farmer
+                             and row["phone_tag"] == tag and row["service_code"] == code
+                             and row["verified_pin_version"] == version and row["authenticated_at"] == authenticated
+                             and row["created_at"] <= now < row["expires_at"])
+                    if state == "verified":
+                        credential = self.credentials.get(farmer)
+                        valid = (valid and row["created_at"] <= authenticated <= now
+                                 and credential is not None and credential["pin_version"] == version
+                                 and credential["pin_hash"] is not None
+                                 and (credential["locked_until"] is None or credential["locked_until"] <= now))
+                    cursor.rowcount = int(valid)
+                if valid:
+                    row["last_input_count"] = params[0]
+                    if "state = 'ended'" in sql:
+                        row.update(state="ended", authenticated_at=None, verified_pin_version=None)
             elif sql.startswith("UPDATE ussd_sessions SET state = %s"):
                 self.sessions[params[1]].update(state=params[0], verified_pin_version=None, authenticated_at=None)
             else:
@@ -135,11 +159,13 @@ class UssdCallbackFoundationTests(unittest.TestCase):
         clock.start()
         self.addCleanup(clock.stop)
         self.forbidden = []
-        for name in ("identify_ussd_candidate", "authenticate_ussd_pin"):
-            forbidden = patch("app.services.ussd_authentication_service." + name,
-                              side_effect=AssertionError("Authentication must remain disconnected"))
-            self.forbidden.append(forbidden.start())
-            self.addCleanup(forbidden.stop)
+        # These foundation tests isolate dispatch. Real service/repository menu
+        # integration is covered by test_ussd_menu_integration.py.
+        for name, code in (("identify_ussd_candidate", "pin_prompt"), ("authenticate_ussd_pin", "verification_failed")):
+            service = patch("app.services.ussd_authentication_service." + name,
+                            return_value={"authenticated": False, "response": SAFE_RESPONSES[code]})
+            service.start()
+            self.addCleanup(service.stop)
         for name in ("generate_password_hash", "check_password_hash"):
             forbidden = patch("app.services.ussd_pin_service." + name,
                               side_effect=AssertionError("No hashing in this stage"))
@@ -304,7 +330,7 @@ class UssdCallbackFoundationTests(unittest.TestCase):
         self.connection_helper.assert_not_called()
 
     def test_missing_history_and_out_of_order_pin_inputs_are_refused(self):
-        for text in ("0", "1", "1*0042"):
+        for text in ("0", "1*0042"):
             self.assertEqual(self.body(self.post(text=text)), SAFE_RESPONSES["verification_failed"])
         key = self.start()
         self.assertEqual(self.body(self.post(text="1*0042")), SAFE_RESPONSES["verification_failed"])
@@ -316,22 +342,24 @@ class UssdCallbackFoundationTests(unittest.TestCase):
         key = self.start()
         self.assertEqual(self.body(self.post(text="0")), SAFE_RESPONSES["exit"])
         mutations = [sql for sql, _ in self.db.queries if not sql.startswith("SELECT")]
-        self.assertTrue(mutations[-3].startswith("INSERT INTO ussd_callback_results"))
-        self.assertTrue(mutations[-1].startswith("UPDATE ussd_sessions SET state"))
+        self.assertTrue(mutations[-2].startswith("INSERT INTO ussd_callback_results"))
+        self.assertTrue(mutations[-1].startswith("UPDATE ussd_sessions SET last_input_count"))
+        self.assertIn("state = 'ended'", mutations[-1])
+        self.assertIn("expires_at > UTC_TIMESTAMP(6)", mutations[-1])
         self.assertEqual(self.db.sessions[key]["state"], "ended")
         before = copy.deepcopy((self.db.sessions, self.db.callbacks))
         self.db.queries.clear()
         self.assertEqual(self.body(self.post(text="0")), SAFE_RESPONSES["exit"])
-        self.assertEqual(self.body(self.post(text="1")), SAFE_RESPONSES["verification_failed"])
+        self.assertEqual(self.body(self.post(text="2")), SAFE_RESPONSES["verification_failed"])
         self.assertEqual(self.body(self.post()), SAFE_RESPONSES["verification_failed"])
         self.assertEqual((self.db.sessions, self.db.callbacks), before)
         self.assertTrue(all(sql.startswith("SELECT") for sql, _ in self.db.queries))
 
-    def test_advice_and_invalid_selection_terminate_without_identification(self):
-        for text, code in (("1", "verification_unavailable"), ("2", "invalid_selection")):
+    def test_candidate_dispatch_and_invalid_welcome_selection(self):
+        for text, code in (("1", "pin_prompt"), ("2", "invalid_selection")):
             self.post(sessionId="choice" + text)
             self.assertEqual(self.body(self.post(sessionId="choice" + text, text=text)), SAFE_RESPONSES[code])
-        self.assertTrue(all(row["state"] == "ended" for row in self.db.sessions.values()))
+        self.assertEqual(sum(row["state"] == "ended" for row in self.db.sessions.values()), 1)
 
     def test_expired_initial_or_new_terminal_callback_cannot_reopen(self):
         key = self.start()
@@ -382,7 +410,7 @@ class UssdCallbackFoundationTests(unittest.TestCase):
     def test_terminal_failure_rolls_back_callback_and_position(self):
         self.start()
         before = copy.deepcopy((self.db.sessions, self.db.callbacks))
-        self.db.fail_at = "UPDATE ussd_sessions SET state"
+        self.db.fail_at = "UPDATE ussd_sessions SET last_input_count"
         self.assertEqual(self.body(self.post(text="0")), SAFE_RESPONSES["verification_failed"])
         self.assertEqual((self.db.sessions, self.db.callbacks), before)
         self.db.connections[-1].rollback.assert_called_once_with()

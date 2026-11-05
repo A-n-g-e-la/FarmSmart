@@ -1,9 +1,9 @@
-# Stage 2C.2B.2: offline callback foundation
+# Stage 2C.2B.3: offline-first callback authentication integration
 
-The existing `POST /ussd` blueprint remains the only endpoint. No candidate
-identification, PIN verification, enrollment, farmer-data access, advisory
-requests or SMS delivery is connected. The PIN crypto implementation and its
-non-waiting process-wide scrypt gate are unchanged.
+The existing `POST /ussd` blueprint remains the only endpoint. Its opt-in path
+now dispatches to the committed candidate-identification and PIN-verification
+services. No enrollment, farmer-data retrieval, advisory requests or SMS delivery
+is implemented. PIN crypto parameters and the non-waiting scrypt gate are unchanged.
 
 ## Feature flag and secrets
 
@@ -11,7 +11,9 @@ non-waiting process-wide scrypt gate are unchanged.
 explicit `true` enables the persistence foundation. A malformed flag fails
 closed. With the flag false, the original public, database-independent menu
 behavior, parsing, status codes and browser-cookie independence are preserved.
-This flag does **not** enable PIN authentication, even when configured correctly.
+With the flag explicitly enabled and all relay/shared-limiter security prerequisites
+satisfied, it now includes PIN authentication. The flag remains false by default;
+implementation and tests did not activate it in any deployment or environment file.
 
 With the foundation enabled, missing/invalid configuration produces a fixed
 plain-text `END` with HTTP 503 before database access. Flask debug mode is refused
@@ -31,7 +33,7 @@ Required settings:
 | `USSD_RELAY_SECRET` | Canonical base64 encoding of another independent 32-byte secret, supplied externally. |
 | `USSD_TRUSTED_RELAY_IPS` | Comma-separated exact socket-peer addresses of our own relays; at most eight. No provider IP assumptions, CIDRs, wildcards, duplicate or unspecified addresses. |
 | `SECRET_KEY` | Provision a stable Flask key externally for deployment. The existing web-development fallback is unchanged. |
-| `USSD_PIN_PEPPERS`, `USSD_PIN_CURRENT_KEY_VERSION` | Valid Stage 2C.1 keyring/current version; checked without hashing even though PIN verification is disconnected. |
+| `USSD_PIN_PEPPERS`, `USSD_PIN_CURRENT_KEY_VERSION` | Valid Stage 2C.1 keyring/current version; ingress checks configuration without hashing; only an eligible PIN submission invokes scrypt. |
 | `AFRICASTALKING_API_KEY` | Optional existing provider API credential, checked against relay-secret reuse when supplied; never used to authenticate inbound callbacks. |
 
 The relay credential must differ from every PIN pepper, metadata key, Flask key
@@ -125,33 +127,85 @@ After the unchanged four-field, URL-encoded parser and 4,096-byte bound:
   an insert collision or uncertain commit, not a claim that rollback always
   undoes a lost commit acknowledgement.
 - From the actual welcome, `0` stores the exit response then ends the session;
-  `1` stores the existing verification-unavailable response then ends it; other
-  single selections store invalid-selection then end it. Result insertion,
-  input-position advancement and ending are one transaction. Any failure rolls
-  back the complete unit. Cumulative inputs such as `1*dddd` are refused.
+  other single selections besides `1` store invalid-selection then end it.
+  `1` dispatches to candidate identification, persisting a PIN prompt and entering
+  PIN state. The normalized phone identifies a candidate; it grants no access.
 - An exact, still-unexpired terminal replay may return its prior public terminal
   response through reads only. An ended session cannot accept a **new** operation,
   changed input or an empty callback that would reopen it. Expired replay is
   refused as well.
 - Phone fingerprints, service code, expected input position, prefix fingerprint,
-  lifetime and empty verification metadata are rechecked. Missing history is not
-  fabricated. Bound, PIN-state and verified sessions are refused untouched.
+  lifetime and verification metadata are rechecked. Missing history is never
+  fabricated. The unbound welcome handler refuses bound or progressed sessions;
+  bound lifecycle actions use the authentication service's lock order.
 
-This foundation never locks credentials or accounts after sessions: it supports
-only unbound sessions and holds no outer transaction around authentication.
-Stage 2C.2B.3 must acquire account/profile/credential locks before session locks
-and call the existing two-phase authentication service outside an outer unit.
+### Menu state machine and dispatch
+
+| Cumulative input | Service / expected state | Result |
+| --- | --- | --- |
+| Empty | Callback orchestrator / new or exact unbound welcome | Persist/replay welcome at position 0. |
+| `0` | Callback orchestrator / welcome | Persist exit at position 1, then end atomically. |
+| `1` | `identify_ussd_candidate` / welcome or exact prompt replay | Bind candidate, persist generic prompt at position 1, enter PIN state; no authentication. |
+| `1*dddd` | `authenticate_ussd_pin` / PIN or exact result replay | Exactly four ASCII digits, including `0000`; one submission per dial. |
+| `1*0` | `advance_ussd_menu` / PIN | Cancel at position 2 without hashing or counting a failure; end atomically. |
+| `1*dddd*1` | `advance_ussd_menu` / verified | Refresh the fixed placeholder after current authorization/history checks. |
+| `1*dddd*0` | `advance_ussd_menu` / verified | Persist exit at position 3, then clear verification metadata and end. |
+| Further `*1` refreshes, then `*0` | Same service / verified | Require every preceding accepted prefix; existing callback-size/position limits apply. |
+| Other input | Reject missing/conflicting history; invalid current numeric selections terminate | No farmer information or advisory request is returned/accepted. |
+
+The success catalog entry is `CON PIN verified. Advice requests are not yet
+available.` followed by `0. Exit`. The verifier persists exactly this response;
+the HTTP route does not rewrite cached results. The only displayed option is
+exit; `1` is a harmless placeholder refresh, not an advice operation.
+
+Candidate identification and verification own their repository transactions.
+The orchestrator never opens an outer transaction around either call. Scrypt
+runs between the verifier's two transactions, with no database locks held.
+Bound cancellation and follow-up operations lock user/profile, credential,
+session, then callback rows. Verified follow-ups recheck active farmer identity,
+current credential integrity/PIN version, authenticated timestamp, phone/service
+binding, lockout and expiry. They validate every preceding catalog response and
+fingerprint. No supplied cumulative PIN is itself evidence of authentication.
+
+Incorrect PINs end the dial and increment the shared USSD attempt state; the third
+incorrect attempt locks verification for 15 minutes across dials. At expiry a new
+attempt window starts; successful PIN verification resets attempts. Missing rows,
+unenrolled/unknown accounts, malformed credentials, unavailable pepper versions,
+lockout, capacity exhaustion and operational failures share the generic public
+failure response. Operational/crypto errors do not count as wrong PINs and the
+orchestrator performs no additional writes after a service failure. Such failures
+may leave the prior PIN-state row unchanged until absolute expiry; they do not
+commit a success result or authentication metadata.
+
+Exact PIN replays do not rehash or repeat attempt effects. Every cached result
+and every menu-action result has `authenticated=False`; even success text is not
+a renewed authorization grant. Success after ending, expiry or PIN invalidation
+is refused. Exact live terminal replays may reproduce only their public `END`
+response without reopening sessions. Terminal response insertion/position updates
+always precede ending in the same transaction, and failures roll back the unit.
+Concurrent cancellation during hashing prevents the subsequent authentication
+write phase from accepting the stale successful result.
+
+The `pin_verified` catalog text changed from the earlier internal placeholder.
+Expire old staging sessions before upgrading: old cached success text is refused
+instead of being migrated or rewritten. No schema migration is necessary.
 
 `USSD_SESSION_SECONDS` defaults to 180, capped at 180; the deadline is absolute.
 `USSD_RETENTION_SECONDS` defaults to 86400, must cover the lifetime, and is capped
 at seven days. These are provisional values requiring provider retry/session-ID
-reuse confirmation. Fresh application UTC is checked after reads and writes;
-public welcome/terminal transactions do not promise commit-time expiry. The
-existing authenticated-transition database-UTC guard remains unchanged. Keep
+reuse confirmation. Fresh application UTC is checked after reads and writes.
+New menu navigation/cancellation/exit uses a final conditional SQL update with
+database UTC expiry, expected state/position, phone/service/farmer binding and
+verification metadata. Verified actions also check current PIN version and
+lockout. Exactly one row must change; rejection rolls back the earlier callback
+insert and all transaction changes. Terminal insertion precedes ending, now
+combined with position advancement in this guarded update. These are statement-
+time guards, not a promise of commit-time expiry. The existing PIN-authentication
+database-UTC guard remains unchanged. Keep
 application/database clocks synchronized. No cleanup scheduler is added; do not
 delete retained sessions before confirming the provider replay horizon.
 
-## Remaining work before Stage 2C.2B.3/deployment
+## Remaining prerequisites before deployment
 
 - Approve and validate the real relay's external-origin verification and TLS/
   firewall/native peer topology. No origin claims are established by these fakes.
@@ -163,7 +217,11 @@ delete retained sessions before confirming the provider replay horizon.
 - Separately approve isolated MariaDB schema/constraint/locking/UTC validation.
   Offline tests use the real repository with a stateful mocked connector; they
   do not execute SQL or certify InnoDB semantics.
-- Confirm optional callback fields, provider retries, terminal events, retention,
-  and the success placeholder before changing the four-field parser or menus.
-- Wire candidate identification/PIN verification and protected-state checks only
-  in the next approved stage. No web enrollment or password fallback is included.
+- Confirm optional callback fields, provider retries, terminal events and retention;
+  the four-field parser is unchanged. Timing-based enumeration remains a deployment
+  risk because unknown/invalid accounts do not perform scrypt.
+- Provision approved enrolled test credentials separately; there is no web
+  enrollment, automatic credential generation or web-password fallback.
+- Menu integration tests use real services/repository with a mocked connector.
+  Their serialized transaction fake, conflict injection and overlapping hash
+  phases do not certify real MariaDB concurrency or end-to-end provider security.

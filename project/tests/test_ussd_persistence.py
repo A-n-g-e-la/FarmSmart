@@ -205,6 +205,15 @@ class UssdPersistenceTests(unittest.TestCase):
         self.assertEqual(updates[1][1], ("ended", SESSION_KEY))
         self.assertIn("authenticated_at = NULL", updates[1][0])
 
+    def test_zero_row_terminal_update_poisons_transaction_even_if_caught(self):
+        self.cursor.rowcount = 0
+        with self.assertRaises(UssdPersistenceError):
+            with ussd_transaction() as store:
+                with self.assertRaises(UssdConflictError):
+                    store.set_session_state(SESSION_KEY, "ended", NOW)
+        self.connection.commit.assert_not_called()
+        self.connection.rollback.assert_called_once_with()
+
     def test_verification_metadata_requires_matching_credential_and_candidate(self):
         self.session["state"] = "pin"
         with ussd_transaction() as store:

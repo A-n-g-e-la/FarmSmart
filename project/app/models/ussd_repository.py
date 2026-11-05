@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 SAFE_RESPONSES = {
     "welcome": "CON Welcome to FarmAdvis\n1. Request maize advice\n0. Exit",
     "pin_prompt": "CON Enter your 4-digit FarmAdvis PIN\n0. Exit",
-    "pin_verified": "CON PIN verified.",
+    "pin_verified": "CON PIN verified. Advice requests are not yet available.\n0. Exit",
     "exit": "END Thank you for using FarmAdvis.",
     "verification_failed": "END Verification could not be completed. Please use the farmer portal or try again later.",
     "verification_unavailable": "END Account verification is not yet available. Please try again later.",
@@ -224,6 +224,8 @@ class _UssdRepository:
             "UPDATE ussd_sessions SET state = %s, authenticated_at = NULL, verified_pin_version = NULL "
             "WHERE session_key = %s", (state, session_key),
         )
+        if self._cursor.rowcount != 1:
+            raise UssdConflictError("USSD session transition refused.")
 
     @_operation
     def mark_verified(self, session_key, farmer_id, pin_version, now):
@@ -278,11 +280,15 @@ class _UssdRepository:
         return self._cursor.fetchone()
 
     @_operation
-    def store_callback_result(self, session_key, input_count, input_fingerprint, response_code, now, *, status=200):
+    def store_callback_result(self, session_key, input_count, input_fingerprint, response_code, now, *,
+                              status=200, expected_session=None, end_session=False):
         """Store terminal results before ending the session in this transaction.
 
         An existing exact duplicate is recognition only: it makes the entire
         unit rollback-only, including for ended or PIN-reset-invalidated sessions.
+        Menu callers pass their locked session snapshot. The final position/state
+        update then checks database UTC and that snapshot; zero rows roll back the
+        preceding result insert. Terminal results are inserted before ending.
         """
         _digest(input_fingerprint)
         if (not isinstance(response_code, str) or response_code not in SAFE_RESPONSES
@@ -312,8 +318,46 @@ class _UssdRepository:
             "response_text, response_status, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
             (session_key, input_count, input_fingerprint, text, status, _utc(now)),
         )
-        self._cursor.execute("UPDATE ussd_sessions SET last_input_count = %s WHERE session_key = %s",
-                             (input_count, session_key))
+        if expected_session is None:
+            if end_session:
+                raise UssdValidationError("A menu session snapshot is required.")
+            self._cursor.execute("UPDATE ussd_sessions SET last_input_count = %s WHERE session_key = %s",
+                                 (input_count, session_key))
+        else:
+            expected = expected_session
+            if (expected["state"] not in ("welcome", "pin", "verified")
+                    or expected["last_input_count"] != input_count - 1
+                    or expected["session_key"] != session_key or type(end_session) is not bool):
+                raise UssdConflictError("USSD menu transition refused.")
+            sql = "UPDATE ussd_sessions SET last_input_count = %s"
+            if end_session:
+                sql += ", state = 'ended', authenticated_at = NULL, verified_pin_version = NULL"
+            sql += (
+                " WHERE session_key = %s AND state = %s AND last_input_count = %s "
+                "AND farmer_id <=> %s AND phone_tag = %s AND service_code = %s "
+                "AND verified_pin_version <=> %s AND authenticated_at <=> %s "
+                "AND created_at <= UTC_TIMESTAMP(6) AND expires_at > UTC_TIMESTAMP(6)"
+            )
+            authenticated = expected["authenticated_at"]
+            if authenticated is not None:
+                if authenticated.tzinfo is None:
+                    authenticated = authenticated.replace(tzinfo=timezone.utc)
+                authenticated = _utc(authenticated)
+            params = (input_count, session_key, expected["state"], expected["last_input_count"],
+                      expected["farmer_id"], expected["phone_tag"], expected["service_code"],
+                      expected["verified_pin_version"], authenticated)
+            if expected["state"] == "verified":
+                sql += (
+                    " AND authenticated_at >= created_at AND authenticated_at <= UTC_TIMESTAMP(6) "
+                    "AND EXISTS (SELECT 1 FROM farmer_ussd_credentials AS credential "
+                    "WHERE credential.farmer_id = %s AND credential.pin_version = %s "
+                    "AND credential.pin_hash IS NOT NULL "
+                    "AND (credential.locked_until IS NULL OR credential.locked_until <= UTC_TIMESTAMP(6)))"
+                )
+                params += (expected["farmer_id"], expected["verified_pin_version"])
+            self._cursor.execute(sql, params)
+        if self._cursor.rowcount != 1:
+            raise UssdConflictError("USSD callback transition refused.")
         return True
 
     @_operation

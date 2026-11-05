@@ -1,12 +1,10 @@
 # Stage 2C.2A: offline USSD authentication service
 
-No route imports this service. Stage 1's `/ussd` menu, web-password login, PIN
-enrollment, plots, recommendations, and SMS are unchanged. No database or
-migration was accessed/executed during implementation or testing.
-
-Stage 2C.2B.2 adds an opt-in [callback persistence foundation](ussd-callback-foundation.md).
-It still does not call this service: candidate identification and PIN verification
-remain disconnected, including when the new persistence flag is enabled.
+Stage 2C.2B.3 connects this service through the opt-in
+[callback orchestration layer](ussd-callback-foundation.md). The persistent flag
+remains disabled by default; the legacy `/ussd` menu is unchanged when disabled.
+Web-password login, PIN enrollment, plots, recommendations and SMS are unchanged.
+No database or migration was accessed/executed during implementation or testing.
 
 ## Inspection and minimal repository extensions
 
@@ -49,6 +47,25 @@ Call inside the configured Flask application context:
   exactly `1*dddd`, where the PIN is four ASCII digits, including leading zeros.
   It requires an identified PIN-state session and the matching keyed prefix.
   There is one PIN submission per dial; an incorrect PIN ends that session.
+- `advance_ussd_menu(phone_number, session_id, service_code, text)` cancels with
+  `1*0` or validates a verified follow-up (`1*dddd*1` refresh / `1*dddd*0` exit).
+  Repeated refreshes require every genuine preceding ledger entry. This method
+  never hashes, counts PIN attempts or returns `authenticated=True`. It reuses
+  the same binding, account/credential validation and lock ordering. Invalid
+  numeric PIN shapes terminate with invalid-selection without counting a mismatch.
+
+Successful verification stores the fixed `CON` placeholder with `0. Exit` from
+the response catalog. Exact cached success has the same text but grants no new
+authorization. New follow-ups revalidate current authorization and complete
+history; terminal results are persisted before clearing metadata/ending the
+session in one transaction. See the callback document's full state-machine table.
+
+Identification requires a genuine position-zero welcome fingerprint, catalog
+response and HTTP 200. Both PIN phases require that welcome and the matching
+position-one PIN prompt with its expected response/status; missing or corrupt
+history is refused before any authentication writes. Cached PIN success also
+requires `created_at <= authenticated_at <= current UTC`, a valid current session
+and HTTP 200. Replays still return `authenticated=False` without hashing/counting.
 
 These methods do not create sessions or synthesize prior callbacks. Stage
 2C.2B must establish the genuine welcome session and position-zero result with
@@ -165,12 +182,14 @@ application overhead, and benchmark callback latency. A semaphore limits work
 in progress, not total guesses or sequential abuse. SQL lock waits also depend
 on configured database timeouts and deployment admission limits.
 
-Before connecting any route in Stage 2C.2B, require:
+Before enabling the persistent route in a deployment, require:
 
 - Provider-confirmed callback-origin verification/source restrictions, HTTPS,
   trusted proxy configuration, and ingress/global/per-phone rate limiting.
-  The existing Stage 1 route does not authenticate callback origin. A service
-  code or supplied phone/session identifier is not source authentication.
+  The enabled route authenticates a configured trusted relay and requires a
+  shared-limiter adapter; the actual relay must independently verify the provider.
+  The disabled Stage 1 shell remains public. A service code or supplied
+  phone/session identifier is not source authentication.
 - Timing/enumeration analysis: unregistered and invalid accounts perform no
   scrypt. If dummy work is introduced, put it behind the same gate and ingress
   controls. Fixed public messages alone do not establish timing resistance.

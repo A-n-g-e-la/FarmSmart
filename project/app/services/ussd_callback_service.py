@@ -1,7 +1,7 @@
-"""Welcome/terminal persistence only. No candidate lookup or PIN operations.
+"""Callback dispatch through the existing two-phase authentication service.
 
 Trusted caller must enforce ingress and shared admission before calling this
-internal orchestration API. Bound/authentication sessions belong to 2C.2B.3.
+internal orchestration API. Never wrap authentication calls in an outer unit.
 """
 
 import hmac
@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from app.models.ussd_fingerprints import derive_session_key, fingerprint_input, fingerprint_phone
 from app.models.ussd_repository import SAFE_RESPONSES, UssdConflictError, UssdPersistenceError, ussd_transaction
 from app.services.registration_service import normalize_kenyan_phone
+from app.services import ussd_authentication_service as authentication
 
 
 def _now():
@@ -66,6 +67,14 @@ def orchestrate_callback(settings, session_id, service_code, phone_number, text)
         key = derive_session_key(settings.metadata_key, service_code, session_id)
         tag = fingerprint_phone(settings.metadata_key, phone)
         digest = fingerprint_input(settings.metadata_key, key, tag, text)
+        # Services own their transactions and release all row locks for scrypt.
+        # Response text, including cached success, is never an authorization grant.
+        if text == "1":
+            return authentication.identify_ussd_candidate(phone, session_id, service_code)["response"]
+        if re.fullmatch(r"1\*[0-9]{4}", text):
+            return authentication.authenticate_ussd_pin(phone, session_id, service_code, text)["response"]
+        if "*" in text:
+            return authentication.advance_ussd_menu(phone, session_id, service_code, text)["response"]
         if text == "":
             try:
                 with ussd_transaction() as store:
@@ -88,10 +97,7 @@ def orchestrate_callback(settings, session_id, service_code, phone_number, text)
                 with ussd_transaction() as store:
                     session = store.get_session(key)
                     return _welcome_replay(store, session, key, tag, service_code, digest)
-        # Only one terminal selection after the actual welcome is supported.
-        # Never interpret a supplied PIN/history as evidence of earlier steps.
-        if "*" in text:
-            raise UssdConflictError("USSD callback history refused.")
+        # Unbound welcome exit/invalid selection needs no account lookup.
         with ussd_transaction() as store:
             session = store.get_session(key)
             # Reject bound rows before reading credentials: this foundation never
@@ -100,7 +106,7 @@ def orchestrate_callback(settings, session_id, service_code, phone_number, text)
             prefix = fingerprint_input(settings.metadata_key, key, tag, "")
             _initial_result(store, key, prefix)
             previous = store.get_callback_result(key, 1)
-            response = "exit" if text == "0" else "verification_unavailable" if text == "1" else "invalid_selection"
+            response = "exit" if text == "0" else "invalid_selection"
             _live_unbound(session, tag, service_code, ended=True)
             if (session["state"] == "ended" and session["last_input_count"] == 1 and previous is not None
                     and hmac.compare_digest(previous["input_fingerprint"], digest)
@@ -109,8 +115,8 @@ def orchestrate_callback(settings, session_id, service_code, phone_number, text)
             if previous is not None or session["last_input_count"] != 0:
                 raise UssdConflictError("USSD callback position refused.")
             now = _live_unbound(session, tag, service_code)
-            store.store_callback_result(key, 1, digest, response, now)
-            store.set_session_state(key, "ended", _now())
+            store.store_callback_result(key, 1, digest, response, now,
+                                        expected_session=session, end_session=True)
             _live_unbound(session, tag, service_code)  # Fresh check after all writes.
         return SAFE_RESPONSES[response]
     except Exception:
