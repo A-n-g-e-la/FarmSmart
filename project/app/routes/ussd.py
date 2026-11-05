@@ -15,6 +15,7 @@ ussd_bp = Blueprint("ussd", __name__)
 
 MAX_CALLBACK_BYTES = 4096
 CALLBACK_FIELDS = {"sessionId", "serviceCode", "phoneNumber", "text"}
+OPTIONAL_CALLBACK_FIELDS = {"networkCode"}
 INVALID_REQUEST = "END Invalid request. Please dial again."
 WELCOME = "CON Welcome to FarmAdvis\n1. Request maize advice\n0. Exit"
 
@@ -69,8 +70,11 @@ def _callback_body(settings=None):
         raise RequestEntityTooLarge()
 
     form = request.form
+    # networkCode is ignored, untrusted provider metadata, never an identity signal.
     # Reject missing, unexpected, or ambiguous fields. Empty text starts a session.
-    if set(form) != CALLBACK_FIELDS or any(len(form.getlist(key)) != 1 for key in form):
+    if (not CALLBACK_FIELDS.issubset(form)
+            or not set(form).issubset(CALLBACK_FIELDS | OPTIONAL_CALLBACK_FIELDS)
+            or any(len(form.getlist(key)) != 1 for key in form)):
         return _reply(INVALID_REQUEST, 400)
     if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", form["sessionId"]):
         return _reply(INVALID_REQUEST, 400)

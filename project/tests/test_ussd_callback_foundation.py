@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import dotenv
 from mysql.connector import IntegrityError
+from werkzeug.datastructures import MultiDict
 
 with patch.object(dotenv, "load_dotenv", return_value=False):
     from app import create_app
@@ -199,6 +200,34 @@ class UssdCallbackFoundationTests(unittest.TestCase):
     def start(self):
         self.assertEqual(self.body(self.post()), SAFE_RESPONSES["welcome"])
         return next(iter(self.db.sessions))
+
+    def test_optional_network_code_preserves_persistent_initial_welcome(self):
+        for index, extra in enumerate(({}, {"networkCode": "99999"}, {"networkCode": "untrusted-metadata"})):
+            with self.subTest(extra=extra):
+                response = self.post(sessionId="network-code-" + str(index), **extra)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(self.body(response), SAFE_RESPONSES["welcome"])
+
+    def test_network_code_does_not_relax_persistent_required_or_duplicate_checks(self):
+        payload = dict(self.payload, networkCode="99999")
+        invalid = []
+        for key in payload:
+            duplicate = MultiDict(payload)
+            duplicate.add(key, payload[key])
+            invalid.append(duplicate)
+            if key != "networkCode":
+                missing = dict(payload)
+                del missing[key]
+                invalid.append(missing)
+        invalid.append(dict(payload, unexpected="synthetic"))
+        for index, data in enumerate(invalid):
+            with self.subTest(case=index):
+                response = self.client.post("/ussd", base_url="https://localhost", data=data,
+                                            headers={"X-FarmAdvis-USSD-Relay": RELAY},
+                                            environ_overrides={"REMOTE_ADDR": "10.0.0.8"})
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(self.body(response), SAFE_RESPONSES["invalid_request"])
+        self.connection_helper.assert_not_called()
 
     def test_feature_default_and_explicit_environment_values(self):
         path = Path(__file__).resolve().parents[1] / "app" / "config" / "__init__.py"

@@ -49,6 +49,28 @@ class UssdCallbackTests(unittest.TestCase):
         self.assertEqual(len(rules), 1)
         self.assertEqual(rules[0].endpoint, "ussd.callback")
 
+    def test_optional_network_code_preserves_initial_empty_text_welcome(self):
+        for extra in ({}, {"networkCode": "99999"}, {"networkCode": "untrusted-metadata"}):
+            with self.subTest(extra=extra):
+                response = self.post(**extra)
+                self.assert_reply(response, 200, "CON ")
+                self.assertEqual(response.get_data(as_text=True),
+                                 "CON Welcome to FarmAdvis\n1. Request maize advice\n0. Exit")
+
+    def test_network_code_does_not_relax_required_or_duplicate_field_checks(self):
+        payload = dict(self.payload, networkCode="99999")
+        for key in payload:
+            duplicate = MultiDict(payload)
+            duplicate.add(key, payload[key])
+            with self.subTest(duplicate=key):
+                self.assert_reply(self.client.post("/ussd", data=duplicate), 400, "END ")
+            if key != "networkCode":
+                missing = dict(payload)
+                del missing[key]
+                with self.subTest(missing=key):
+                    self.assert_reply(self.client.post("/ussd", data=missing), 400, "END ")
+        self.assert_reply(self.post(networkCode="99999", unexpected="synthetic"), 400, "END ")
+
     def test_advice_option_ends_without_accepting_a_request(self):
         response = self.post(text="1")
         self.assert_reply(response, 200, "END ")
