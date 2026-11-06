@@ -120,6 +120,24 @@ class _UssdRepository:
                 "farmer_id": farmer["farmer_id"] if farmer is not None and farmer["user_id"] == user["user_id"] else None}
 
     @_operation
+    def get_farmer_web_credential(self, user_id):
+        """Web PIN management only: lock user then profile, never expose the row."""
+        _id(user_id)
+        self._cursor.execute(
+            "SELECT user_id, password_hash, role, status FROM users WHERE user_id = %s FOR UPDATE",
+            (user_id,),
+        )
+        user = self._cursor.fetchone()
+        if user is None:
+            return None
+        self._cursor.execute(
+            "SELECT farmer_id, user_id FROM farmers WHERE user_id = %s FOR UPDATE", (user_id,),
+        )
+        farmer = self._cursor.fetchone()
+        return dict(user, farmer_id=farmer["farmer_id"] if farmer is not None
+                    and farmer["user_id"] == user_id else None)
+
+    @_operation
     def bind_candidate(self, session_key, farmer_id, now):
         """Only bind an unverified welcome session, never switch farmers."""
         if farmer_id is not None:

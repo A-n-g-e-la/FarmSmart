@@ -155,7 +155,7 @@ class FarmerSessionTests(unittest.TestCase):
         self.assertEqual(page.headings.count("h1"), 1)
         self.assertEqual(len(page.ids), len(set(page.ids)))
         expected_sections = {
-            "overview", "quick-actions", "farm-plots", "yield",
+            "overview", "quick-actions", "farm-plots", "ussd-pin", "yield",
             "finances", "fertilizer", "history",
         }
         self.assertEqual({section["id"] for section in page.sections}, expected_sections)
@@ -186,7 +186,7 @@ class FarmerSessionTests(unittest.TestCase):
             # Fragment targets can receive keyboard focus after navigation.
             self.assertEqual(page.elements[href[1:]][1].get("tabindex"), "-1")
         self.assertEqual([button["id"] for button in page.buttons], [
-            "logout-button", "edit-plot", "save-plot-changes", "cancel-plot-edit",
+            "logout-button", "save-ussd-pin", "edit-plot", "save-plot-changes", "cancel-plot-edit",
             "toggle-add-plot", "refresh-plots", "save-plot",
         ])
         self.assertIn("disabled", page.buttons[0])
@@ -273,7 +273,7 @@ class FarmerSessionTests(unittest.TestCase):
         assets = [url for url in page.urls if not url.startswith("#")]
         self.assertIn("/static/css/dashboard.css", assets)
         for url in assets:
-            if url == "/farmer/plots":
+            if url in {"/farmer/plots", "/farmer/ussd-pin"}:
                 continue  # Form POST action, not a static asset.
             self.assertTrue(url.startswith("/static/") or url == "/farmer/login-page", url)
             response = self.client.get(url)

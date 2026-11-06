@@ -9,6 +9,7 @@ from app.security import csrf_token, farmer_required, valid_csrf
 from app.services.authentication_service import authenticate_farmer
 from app.services.farm_plot_service import get_farmer_plots, register_farmer_plot, update_farmer_plot
 from app.services.registration_service import register_farmer
+from app.services.farmer_ussd_pin_service import save_farmer_ussd_pin
 
 
 farmer_bp = Blueprint("farmer", __name__, url_prefix="/farmer")
@@ -17,7 +18,7 @@ farmer_bp = Blueprint("farmer", __name__, url_prefix="/farmer")
 @farmer_bp.after_request
 def plot_response_cache_control(response):
     # Include authorization failures returned before the protected view is reached.
-    if request.endpoint in {"farmer.plots", "farmer.create_plot", "farmer.plot_csrf_token", "farmer.update_plot"}:
+    if request.endpoint in {"farmer.plots", "farmer.create_plot", "farmer.plot_csrf_token", "farmer.update_plot", "farmer.ussd_pin"}:
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -185,11 +186,40 @@ def login():
 @farmer_bp.get("/home")
 @farmer_required
 def home():
+    return _dashboard()
+
+
+def _dashboard(pin_error=None, status=200):
     # Use only the revalidated identity; do not add profile queries or session fields.
     return render_template(
         "farmer/dashboard.html", farmer_name=g.farmer_identity.get("first_name"),
         logout_csrf_token=csrf_token("logout"),
-    ), 200, {"Cache-Control": "no-store"}
+        ussd_pin_csrf_token=csrf_token("ussd_pin"), ussd_pin_error=pin_error,
+    ), status, {"Cache-Control": "no-store"}
+
+
+@farmer_bp.post("/ussd-pin")
+@farmer_required
+def ussd_pin():
+    request.max_content_length = 4096
+    request.max_form_memory_size = 4096
+    if request.mimetype != "application/x-www-form-urlencoded":
+        return _dashboard("Submit the USSD PIN form from your dashboard.", 415)
+    form = request.form
+    fields = {"csrf_token", "web_password", "ussd_pin", "pin_confirmation"}
+    if set(form) != fields or any(len(form.getlist(field)) != 1 for field in form):
+        return _dashboard("Complete the USSD PIN form and try again.", 400)
+    if not valid_csrf("ussd_pin", form["csrf_token"]):
+        return _dashboard("Your form expired or could not be verified. Please reload and try again.", 403)
+    identity = g.farmer_identity
+    result = save_farmer_ussd_pin(identity["user_id"], identity["farmer_id"],
+                                  form["web_password"], form["ussd_pin"], form["pin_confirmation"])
+    if result["ok"]:
+        session.pop("ussd_pin_csrf", None)
+        session.pop("ussd_pin_csrf_issued", None)
+        flash("Your USSD PIN was saved. Previous USSD sessions have been ended.", "ussd_pin")
+        return redirect(url_for("farmer.home") + "#ussd-pin", code=303)
+    return _dashboard(result["message"], {"validation": 400, "password": 403, "locked": 429}.get(result["code"], 503))
 
 
 @farmer_bp.post("/logout")
