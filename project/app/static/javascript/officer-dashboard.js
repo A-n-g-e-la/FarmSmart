@@ -79,7 +79,8 @@
       const card = node("article", undefined, "officer-plot");
       card.append(node("h3", plot.plot_name));
       const details = node("dl");
-      for (const [label, value] of [["Area (acres)", plot.area_acres], ["Location", plot.location],
+      for (const [label, value] of [["Area (acres)", plot.area_acres], ["County", plot.county],
+        ["Sub-county", plot.sub_county], ["Ward", plot.ward], ["Location details", plot.location],
         ["Soil type", plot.soil_type], ["Farming type", plot.farming_type]]) {
         const row = node("div");
         row.append(node("dt", label), node("dd", value === null || value === undefined || value === "" ? "Not provided" : value));

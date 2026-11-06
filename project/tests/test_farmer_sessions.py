@@ -191,7 +191,7 @@ class FarmerSessionTests(unittest.TestCase):
         ])
         self.assertIn("disabled", page.buttons[0])
 
-    def test_plot_form_matches_backend_contract_and_has_free_text_placeholder(self):
+    def test_plot_form_matches_backend_contract_and_has_dropdowns(self):
         self.login()
         html = self.client.get("/farmer/home").get_data(as_text=True)
         page = DashboardParser(html)
@@ -201,15 +201,20 @@ class FarmerSessionTests(unittest.TestCase):
                                         ("plot_location", "location", "150"), ("soil_type", "soil_type", "100"),
                                         ("farming_type", "farming_type", "100")):
             tag, attrs = page.elements[element_id]
-            self.assertEqual(tag, "input")
+            self.assertEqual(tag, "select" if name in ("soil_type", "farming_type") else "input")
             self.assertEqual(attrs["name"], name)
-            self.assertEqual(attrs["maxlength"], limit)
+            if name not in ("soil_type", "farming_type"):
+                self.assertEqual(attrs["maxlength"], limit)
             self.assertEqual("required" in attrs, name in ("plot_name", "area_acres"))
             self.assertIn(f'for="{element_id}"', html)
             self.assertIn(name + "-error", attrs["aria-describedby"])
         tag, farming = page.elements["farming_type"]
-        self.assertEqual(farming["type"], "text")
-        self.assertEqual(farming["placeholder"], "e.g., Rain-fed or Irrigated")
+        self.assertEqual(tag, "select")
+        self.assertEqual(page.elements["county"][1]["value"], "Uasin Gishu")
+        self.assertIn("readonly", page.elements["county"][1])
+        for name in ("sub_county", "ward"):
+            self.assertEqual(page.elements[name][0], "select")
+            self.assertIn("required", page.elements[name][1])
         self.assertNotIn("value", farming)
         self.assertNotIn("pattern", farming)
         self.assertIn("disabled", page.elements["plot-fields"][1])
@@ -259,12 +264,13 @@ class FarmerSessionTests(unittest.TestCase):
                             ("soil_type", "100"), ("farming_type", "100")):
             attrs = page.elements["edit-" + name][1]
             self.assertEqual(attrs["name"], name)
-            self.assertEqual(attrs["maxlength"], limit)
+            if name not in ("soil_type", "farming_type"):
+                self.assertEqual(attrs["maxlength"], limit)
             self.assertEqual("required" in attrs, name in ("plot_name", "area_acres"))
             self.assertIn(f'for="edit-{name}"', html)
             self.assertIn("edit-" + name + "-error", attrs["aria-describedby"])
-        self.assertEqual(page.elements["edit-farming_type"][1]["placeholder"], "e.g., Rain-fed or Irrigated")
-        self.assertEqual(page.elements["edit-farming_type"][1]["type"], "text")
+        self.assertEqual(page.elements["edit-farming_type"][0], "select")
+        self.assertIn("readonly", page.elements["edit-county"][1])
         self.assertEqual(page.elements["edit-plot-status"][1]["role"], "status")
 
     def test_dashboard_assets_are_local_and_served(self):

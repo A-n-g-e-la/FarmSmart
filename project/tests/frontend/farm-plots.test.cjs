@@ -27,10 +27,10 @@ function element(tag = "div") {
 }
 
 function setup(responses = []) {
-  const names = ["plot_name", "area_acres", "location", "soil_type", "farming_type"];
+  const names = ["plot_name", "area_acres", "location", "soil_type", "farming_type", "county", "sub_county", "ward"];
   const ids = ["plot-form", "plot-fields", "save-plot", "refresh-plots", "plot-list", "plot-count",
     "plot-total-area", "plots-empty", "plots-status", "plots-error", "plot-form-status", "plot-form-error",
-    "plot-session", "plot_name", "area_acres", "plot_location", "soil_type", "farming_type",
+    "plot-session", "plot-options", "plot_name", "area_acres", "plot_location", "soil_type", "farming_type", "county", "sub_county", "ward",
     "add-plot", "toggle-add-plot", "quick-add-plot",
     "plot-selection-status", "selected-plot-details",
     "edit-plot", "edit-plot-panel", "edit-plot-form", "edit-plot-fields", "save-plot-changes", "cancel-plot-edit",
@@ -38,6 +38,7 @@ function setup(responses = []) {
     ...names.map((name) => "edit-" + name + "-error"),
     ...names.map((name) => name + "-error")];
   const elements = Object.fromEntries(ids.map((id) => [id, element()]));
+  elements["plot-options"].textContent = fs.readFileSync(path.join(__dirname, "../../app/data/plot_options.json"), "utf8");
   elements["plot-session"].hidden = true;
   const inputs = names.map((name) => elements[name === "location" ? "plot_location" : name]);
   elements["plot-form"].reset = () => inputs.forEach((input) => { input.value = ""; });
@@ -58,6 +59,10 @@ function setup(responses = []) {
     fill() {
       if (elements["add-plot"].hidden) elements["toggle-add-plot"].listeners.click();
       elements.plot_name.value = " North plot "; elements.area_acres.value = "1.250";
+      elements.county.value = "Uasin Gishu";
+      elements.sub_county.value = "Moiben";
+      elements.sub_county.listeners.change();
+      elements.ward.value = "Moiben";
     },
     submit: () => elements["plot-form"].listeners.submit({ preventDefault() {} }),
     refresh: () => elements["refresh-plots"].listeners.click(),
@@ -530,7 +535,7 @@ test("valid submission fetches CSRF, posts allowlisted string fields, resets, an
   const app = setup([listing(), token(), created(), listing([plot()])]);
   await tick();
   app.fill();
-  app.elements.farming_type.value = "Mixed practice";
+  app.elements.farming_type.value = "Rain-fed";
   await app.submit();
   assert.deepEqual(app.calls.map((request) => request.url), ["/farmer/plots", "/farmer/plots/csrf-token", "/farmer/plots", "/farmer/plots"]);
   const request = app.calls[2];
@@ -539,7 +544,8 @@ test("valid submission fetches CSRF, posts allowlisted string fields, resets, an
   assert.equal(request.headers["X-CSRF-Token"], "scoped-token");
   assert.equal(request.headers["Content-Type"], "application/json");
   assert.deepEqual(JSON.parse(request.body), { plot_name: "North plot", area_acres: "1.250",
-    location: "", soil_type: "", farming_type: "Mixed practice" });
+    location: "", soil_type: "", farming_type: "Rain-fed",
+    county: "Uasin Gishu", sub_county: "Moiben", ward: "Moiben" });
   assert.equal(app.elements.plot_name.value, "");
   assert.match(app.elements["plot-form-status"].textContent, /registered successfully/);
   assert.equal(app.elements["plot-count"].textContent, "1");
@@ -547,6 +553,43 @@ test("valid submission fetches CSRF, posts allowlisted string fields, resets, an
   assert.equal(app.elements["add-plot"].hidden, true);
   assert.equal(app.elements["toggle-add-plot"].attributes["aria-expanded"], "false");
   assert.equal(app.elements["toggle-add-plot"].focused, true);
+});
+
+test("sub-county selection resets dependent wards and excludes other counties", async () => {
+  const app = setup([listing()]);
+  await tick();
+  assert.equal(app.elements.county.value, "Uasin Gishu");
+  assert.deepEqual(app.elements.sub_county.children.map((option) => option.value),
+    ["", "Ainabkoi", "Kapseret", "Kesses", "Moiben", "Soy", "Turbo"]);
+  assert.equal(app.elements.ward.disabled, true);
+  app.fill();
+  app.elements.sub_county.value = "Kapseret";
+  app.elements.sub_county.listeners.change();
+  assert.equal(app.elements.ward.value, "");
+  assert.deepEqual(app.elements.ward.children.map((option) => option.value),
+    ["", "Simat/Kapseret", "Langas", "Ngeria", "Megun", "Kipkenyo"]);
+  app.elements.ward.value = "Moiben";
+  await app.submit();
+  assert.equal(app.calls.length, 1);
+  assert.equal(app.elements["ward-error"].hidden, false);
+});
+
+test("editing a legacy plot preserves old text and saves a complete new administrative location", async () => {
+  const saved = { ...plot(), farming_type: "Mixed practice", soil_type: "Old soil description" };
+  const app = setup([listing([saved]), token(), response(200, { ok: true }), listing([saved])]);
+  await tick();
+  app.elements["plot-list"].children[0].children[0].listeners.click();
+  app.elements["edit-plot"].listeners.click();
+  assert.equal(app.elements["edit-county"].value, "");
+  assert.equal(app.elements["edit-farming_type"].value, "Mixed practice");
+  assert.match(textTree(app.elements["edit-soil_type"]), /Previously entered: Old soil description/);
+  app.elements["edit-sub_county"].value = "Turbo";
+  app.elements["edit-sub_county"].listeners.change();
+  app.elements["edit-ward"].value = "Kamagut";
+  await app.elements["edit-plot-form"].listeners.submit({ preventDefault() {} });
+  assert.deepEqual(JSON.parse(app.calls[2].body), {
+    county: "Uasin Gishu", sub_county: "Turbo", ward: "Kamagut",
+  });
 });
 
 test("client validation prevents requests and provides accessible field errors", async () => {

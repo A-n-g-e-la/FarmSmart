@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
   <script src="{{ url_for('static', filename='javascript/dashboard.js') }}" defer></script>
   <script src="{{ url_for('static', filename='javascript/farm-plots.js') }}" defer></script>
+  <script id="plot-options" type="application/json">{{ plot_options | tojson }}</script>
 </head>
 <body class="dashboard-page">
   <a class="skip-link" href="#main-content">Skip to dashboard</a>
@@ -96,6 +97,7 @@
         <section class="dashboard-card plots-card" id="farm-plots" aria-labelledby="plots-title" tabindex="-1">
           <div class="card-heading"><span class="card-kicker">Your land</span></div>
           <h2 id="plots-title">Farm plots</h2>
+          <p>Current prototype: Uasin Gishu County. Ward selection records plot location; predictions have not been independently validated in every ward.</p>
           <p id="plots-status" role="status" aria-live="polite">Enable JavaScript to load your farm plots.</p>
           <p id="plots-error" class="notice error-summary" role="alert" hidden></p>
           <p id="plots-empty" hidden>No farm plots registered yet. Choose + Add Farm Plot to register your first plot.</p>
@@ -130,18 +132,33 @@
                       <p id="edit-area_acres-error" class="field-error" hidden></p>
                     </div>
                     <div class="field">
-                      <label for="edit-location">Location (optional)</label>
+                      <label for="edit-county">County</label>
+                      <input id="edit-county" name="county" type="text" readonly placeholder="Not recorded">
+                      <p id="edit-county-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-sub_county">Sub-county</label>
+                      <select id="edit-sub_county" name="sub_county" aria-describedby="edit-sub_county-error"></select>
+                      <p id="edit-sub_county-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-ward">Ward</label>
+                      <select id="edit-ward" name="ward" aria-describedby="edit-ward-error"></select>
+                      <p id="edit-ward-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-location">Village / landmark or previous location details (optional)</label>
                       <input id="edit-location" name="location" type="text" maxlength="150" aria-describedby="edit-location-error">
                       <p id="edit-location-error" class="field-error" hidden></p>
                     </div>
                     <div class="field">
-                      <label for="edit-soil_type">Soil Type (optional)</label>
-                      <input id="edit-soil_type" name="soil_type" type="text" maxlength="100" aria-describedby="edit-soil_type-error">
+                      <label for="edit-soil_type">Predominant soil texture (optional)</label>
+                      <select id="edit-soil_type" name="soil_type" aria-describedby="edit-soil_type-error"></select>
                       <p id="edit-soil_type-error" class="field-error" hidden></p>
                     </div>
                     <div class="field">
-                      <label for="edit-farming_type">Farming Type (optional)</label>
-                      <input id="edit-farming_type" name="farming_type" type="text" maxlength="100" placeholder="e.g., Rain-fed or Irrigated" aria-describedby="edit-farming_type-error">
+                      <label for="edit-farming_type">Water supply method (optional)</label>
+                      <select id="edit-farming_type" name="farming_type" aria-describedby="edit-farming_type-error"></select>
                       <p id="edit-farming_type-error" class="field-error" hidden></p>
                     </div>
                   </div>
@@ -181,18 +198,33 @@
                     <p id="area_acres-error" class="field-error" hidden></p>
                   </div>
                   <div class="field">
-                    <label for="plot_location">Location (optional)</label>
+                    <label for="county">County</label>
+                    <input id="county" name="county" type="text" value="Uasin Gishu" readonly aria-describedby="county-error">
+                    <p id="county-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="sub_county">Sub-county (required)</label>
+                    <select id="sub_county" name="sub_county" required aria-describedby="sub_county-error"></select>
+                    <p id="sub_county-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="ward">Ward (required)</label>
+                    <select id="ward" name="ward" required aria-describedby="ward-error"></select>
+                    <p id="ward-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="plot_location">Village / landmark (optional)</label>
                     <input id="plot_location" name="location" type="text" maxlength="150" aria-describedby="location-error">
                     <p id="location-error" class="field-error" hidden></p>
                   </div>
                   <div class="field">
-                    <label for="soil_type">Soil Type (optional)</label>
-                    <input id="soil_type" name="soil_type" type="text" maxlength="100" aria-describedby="soil_type-error">
+                    <label for="soil_type">Predominant soil texture (optional)</label>
+                    <select id="soil_type" name="soil_type" aria-describedby="soil_type-error"></select>
                     <p id="soil_type-error" class="field-error" hidden></p>
                   </div>
                   <div class="field">
-                    <label for="farming_type">Farming Type (optional)</label>
-                    <input id="farming_type" name="farming_type" type="text" maxlength="100" placeholder="e.g., Rain-fed or Irrigated" aria-describedby="farming_type-error">
+                    <label for="farming_type">Water supply method (optional)</label>
+                    <select id="farming_type" name="farming_type" aria-describedby="farming_type-error"></select>
                     <p id="farming_type-error" class="field-error" hidden></p>
                   </div>
                 </div>

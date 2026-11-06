@@ -1,12 +1,16 @@
 (() => {
   const form = document.getElementById("plot-form");
   if (!form) return;
+  const options = JSON.parse(document.getElementById("plot-options").textContent);
   const fields = {
     plot_name: document.getElementById("plot_name"),
     area_acres: document.getElementById("area_acres"),
     location: document.getElementById("plot_location"),
     soil_type: document.getElementById("soil_type"),
     farming_type: document.getElementById("farming_type"),
+    county: document.getElementById("county"),
+    sub_county: document.getElementById("sub_county"),
+    ward: document.getElementById("ward"),
   };
   const fieldset = document.getElementById("plot-fields");
   const save = document.getElementById("save-plot");
@@ -33,6 +37,39 @@
   const editStatus = document.getElementById("edit-plot-status");
   const editError = document.getElementById("edit-plot-error");
   const editFields = Object.fromEntries(Object.keys(fields).map((name) => [name, document.getElementById(`edit-${name}`)]));
+  const administrative = ["county", "sub_county", "ward"];
+
+  function selectOptions(select, choices, value = "", legacy = false) {
+    const entries = [["", "Select / not provided"], ...choices.map((item) => [item, item])];
+    if (legacy && value && !choices.includes(value)) entries.push([value, `Previously entered: ${value}`]);
+    select.replaceChildren(...entries.map(([key, label]) => {
+      const option = document.createElement("option");
+      option.value = key;
+      option.textContent = label;
+      return option;
+    }));
+    select.value = choices.includes(value) || legacy ? value : "";
+  }
+
+  function locationOptions(inputs, plot = null) {
+    inputs.county.value = plot ? plot.county || "" : options.county;
+    selectOptions(inputs.sub_county, Object.keys(options.sub_counties), plot?.sub_county || "");
+    const wards = Object.hasOwn(options.sub_counties, inputs.sub_county.value)
+      ? options.sub_counties[inputs.sub_county.value] : [];
+    selectOptions(inputs.ward, wards, plot?.ward || "");
+    inputs.ward.disabled = !wards.length;
+    selectOptions(inputs.soil_type, options.soil_types, plot?.soil_type || "", Boolean(plot));
+    selectOptions(inputs.farming_type, options.farming_types, plot?.farming_type || "", Boolean(plot));
+  }
+  locationOptions(fields);
+  locationOptions(editFields, {});
+  for (const inputs of [fields, editFields]) inputs.sub_county.addEventListener("change", () => {
+    inputs.county.value = options.county;
+    const wards = Object.hasOwn(options.sub_counties, inputs.sub_county.value)
+      ? options.sub_counties[inputs.sub_county.value] : [];
+    selectOptions(inputs.ward, wards);
+    inputs.ward.disabled = !wards.length;
+  });
   let editPlotId = null;
   let editBaseline = {};
   let editRevision = 0;
@@ -70,11 +107,16 @@
     if (expired || loading || saving || editSaving || !availablePlots.has(selectedPlotId)) return;
     if (!editPanel.hidden) { closeEdit(true); return; }
     const plot = availablePlots.get(selectedPlotId);
+    locationOptions(editFields, plot);
     editPlotId = selectedPlotId;
     editRevision++;
     editStatus.textContent = "";
     editError.hidden = true;
     for (const name of Object.keys(editFields)) {
+      if (administrative.includes(name)) {
+        editBaseline[name] = editFields[name].value;
+        continue;
+      }
       let value = plot[name] ?? "";
       // Strip only insignificant zeroes; never round a stored six-place area.
       if (name === "area_acres" && value.includes(".")) value = value.replace(/0+$/, "").replace(/\.$/, "");
@@ -168,6 +210,15 @@
       if (Object.hasOwn(data, name) && Array.from(data[name]).length > limit) errors[name] = `Use at most ${limit} characters.`;
     }
     if (Object.hasOwn(data, "plot_name") && !data.plot_name) errors.plot_name = "Enter a plot name.";
+    for (const [name, choices] of [["soil_type", options.soil_types], ["farming_type", options.farming_types]]) {
+      if (Object.hasOwn(data, name) && data[name] && !choices.includes(data[name])) errors[name] = "Select a listed option or Unknown.";
+    }
+    if (administrative.some((name) => Object.hasOwn(data, name))) {
+      if (data.county !== options.county) errors.county = "This prototype supports Uasin Gishu only.";
+      const wards = Object.hasOwn(options.sub_counties, data.sub_county) ? options.sub_counties[data.sub_county] : [];
+      if (!wards.length) errors.sub_county = "Select a sub-county.";
+      if (!wards.includes(data.ward)) errors.ward = "Select a ward belonging to this sub-county.";
+    }
     if (Object.hasOwn(data, "area_acres") && (data.area_acres.length > 32 || !/^[0-9]+(\.[0-9]{1,3})?$/.test(data.area_acres)
         || Number(data.area_acres) < 0.001 || Number(data.area_acres) > 999999.999)) {
       errors.area_acres = "Use acres from 0.001 to 999999.999 with at most 3 decimal places.";
@@ -206,8 +257,9 @@
     }
     const rows = [
       ["Plot name", selected.plot_name], ["Area", `${selected.area_acres} acres`],
-      ["Location", selected.location], ["Soil type", selected.soil_type],
-      ["Farming type", selected.farming_type],
+      ["County", selected.county], ["Sub-county", selected.sub_county], ["Ward", selected.ward],
+      ["Location details", selected.location], ["Predominant soil texture", selected.soil_type],
+      ["Water supply method", selected.farming_type],
     ].map(([label, value]) => {
       const row = document.createElement("div");
       const term = document.createElement("dt");
@@ -233,7 +285,7 @@
       area += millionths(plot.area_acres);
       if (!Number.isSafeInteger(plot.plot_id) || plot.plot_id <= 0 || nextPlots.has(plot.plot_id)
           || typeof plot.plot_name !== "string") throw new Error();
-      for (const value of [plot.location, plot.soil_type, plot.farming_type]) {
+      for (const value of [plot.location, plot.soil_type, plot.farming_type, plot.county ?? null, plot.sub_county ?? null, plot.ward ?? null]) {
         if (value !== null && typeof value !== "string") throw new Error();
       }
       nextPlots.set(plot.plot_id, plot);
@@ -250,9 +302,10 @@
       const acreage = document.createElement("span");
       acreage.textContent = `${plot.area_acres} acres`;
       button.append(title, acreage);
-      if (plot.location) {
+      const address = [plot.county, plot.sub_county, plot.ward, plot.location].filter(Boolean).join(" / ");
+      if (address) {
         const location = document.createElement("span");
-        location.textContent = plot.location;
+        location.textContent = address;
         button.append(location);
       }
       const indicator = document.createElement("span");
@@ -360,6 +413,7 @@
         showError(formError, "Unable to confirm registration. Refresh plots and check whether the plot was saved before trying again.", true);
       } else {
         form.reset();
+        locationOptions(fields);
         formStatus.textContent = "Farm plot registered successfully.";
         registered = true;
         await loadPlots();
@@ -384,6 +438,9 @@
     const changes = Object.fromEntries(Object.entries(editFields)
       .map(([name, input]) => [name, input.value.trim()])
       .filter(([name, value]) => value !== editBaseline[name]));
+    if (administrative.some((name) => Object.hasOwn(changes, name))) {
+      for (const name of administrative) changes[name] = editFields[name].value;
+    }
     const errors = validatePlotInputs(changes);
     for (const name of Object.keys(editFields)) fieldError(name, errors[name] || "", editFields, "edit-");
     if (Object.keys(errors).length) { showError(editError, "Please check the highlighted fields.", true); return; }

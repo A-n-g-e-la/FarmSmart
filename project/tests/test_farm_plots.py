@@ -20,7 +20,7 @@ class FarmPlotServiceTests(unittest.TestCase):
         self.cursor = self.connection.cursor.return_value
         self.cursor.fetchall.return_value = [{
             "plot_id": 12, "plot_name": "North plot", "area_acres": Decimal("1.250000"),
-            "location": None, "soil_type": "Loam", "farming_type": None,
+            "location": None, "soil_type": "Loam", "farming_type": None, "county": None, "sub_county": None, "ward": None,
             "farmer_id": 91, "created_at": "not-for-response",
         }]
         helper = patch("app.services.farm_plot_service.get_db_connection", return_value=self.connection)
@@ -36,11 +36,11 @@ class FarmPlotServiceTests(unittest.TestCase):
         result = get_farmer_plots(91)
         self.assertEqual(result, {"ok": True, "plots": [{
             "plot_id": 12, "plot_name": "North plot", "area_acres": "1.250000",
-            "location": None, "soil_type": "Loam", "farming_type": None,
+            "location": None, "soil_type": "Loam", "farming_type": None, "county": None, "sub_county": None, "ward": None,
         }]})
         self.connection.cursor.assert_called_once_with(dictionary=True)
         sql, params = self.cursor.execute.call_args.args
-        self.assertTrue(sql.startswith("SELECT plot_id, plot_name, area_acres, location, soil_type, farming_type "))
+        self.assertTrue(sql.startswith("SELECT plot_id, plot_name, area_acres, location, soil_type, farming_type, county, sub_county, ward "))
         self.assertIn("WHERE farmer_id = %s ORDER BY plot_id ASC", sql)
         self.assertEqual(params, (91,))
         self.cursor.execute.assert_called_once()
@@ -120,7 +120,7 @@ class FarmerPlotEndpointTests(unittest.TestCase):
         self.records = [{
             "farmer_id": owner, "plot_id": plot, "plot_name": name,
             "area_acres": Decimal("0.750000"), "location": None,
-            "soil_type": None, "farming_type": None,
+            "soil_type": None, "farming_type": None, "county": None, "sub_county": None, "ward": None,
         } for owner, plot, name in ((91, 12, "North plot"), (92, 13, "South plot"))]
         self.cursor.fetchall.side_effect = lambda: [
             row for row in self.records

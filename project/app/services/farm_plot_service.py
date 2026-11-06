@@ -4,10 +4,11 @@ from collections.abc import Mapping
 from decimal import Decimal
 
 from app.db import get_db_connection
+from app.config.plot_options import PLOT_OPTIONS
 
 
 logger = logging.getLogger(__name__)
-PLOT_FIELDS = ("plot_name", "area_acres", "location", "soil_type", "farming_type")
+PLOT_FIELDS = ("plot_name", "area_acres", "location", "soil_type", "farming_type", "county", "sub_county", "ward")
 
 
 def _validate_plot_fields(data, partial=False):
@@ -30,6 +31,26 @@ def _validate_plot_fields(data, partial=False):
             errors[field] = "This field is required."
         else:
             values[field] = value.strip() or None
+
+    for field, options in (("soil_type", PLOT_OPTIONS["soil_types"]),
+                           ("farming_type", PLOT_OPTIONS["farming_types"])):
+        if field in values and values[field] is not None and values[field] not in options:
+            errors[field] = "Select a listed option or Unknown."
+
+    administrative = {"county", "sub_county", "ward"}
+    if not partial or administrative.intersection(data):
+        if partial and not administrative.issubset(data):
+            errors["ward"] = "Submit county, sub-county and ward together when changing administrative location."
+        county = data.get("county", PLOT_OPTIONS["county"] if not partial else None)
+        if county != PLOT_OPTIONS["county"]:
+            errors["county"] = "This prototype supports Uasin Gishu only."
+        sub_county, ward = data.get("sub_county"), data.get("ward")
+        wards = PLOT_OPTIONS["sub_counties"].get(sub_county) if isinstance(sub_county, str) else None
+        if wards is None:
+            errors["sub_county"] = "Select a listed Uasin Gishu sub-county."
+        if not isinstance(ward, str) or wards is None or ward not in wards:
+            errors["ward"] = "Select a ward belonging to the selected sub-county."
+        values.update(county=PLOT_OPTIONS["county"], sub_county=sub_county, ward=ward)
 
     if not partial or "area_acres" in data:
         raw_area = data.get("area_acres")
@@ -66,10 +87,11 @@ def register_farmer_plot(farmer_id, data):
         cursor = connection.cursor()
         cursor.execute(
             "INSERT INTO farm_plots "
-            "(farmer_id, plot_name, area_acres, location, soil_type, farming_type) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
+            "(farmer_id, plot_name, area_acres, location, soil_type, farming_type, county, sub_county, ward) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (farmer_id, values["plot_name"], values["area_acres"],
-             values["location"], values["soil_type"], values["farming_type"]),
+             values["location"], values["soil_type"], values["farming_type"],
+             values["county"], values["sub_county"], values["ward"]),
         )
         plot_id = cursor.lastrowid
         connection.commit()
@@ -107,7 +129,7 @@ def update_farmer_plot(farmer_id, plot_id, data):
         }}
     if any(field not in PLOT_FIELDS for field in data):
         return {"ok": False, "code": "validation_error", "errors": {
-            "request": "Only plot_name, area_acres, location, soil_type and farming_type may be updated.",
+            "request": "Only editable plot fields may be updated.",
         }}
     values, errors = _validate_plot_fields(data, partial=True)
     if errors:
@@ -168,7 +190,7 @@ def get_farmer_plots(farmer_id):
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
         cursor.execute(
-            "SELECT plot_id, plot_name, area_acres, location, soil_type, farming_type "
+            "SELECT plot_id, plot_name, area_acres, location, soil_type, farming_type, county, sub_county, ward "
             "FROM farm_plots WHERE farmer_id = %s ORDER BY plot_id ASC",
             (farmer_id,),
         )
@@ -180,6 +202,7 @@ def get_farmer_plots(farmer_id):
             "location": row["location"],
             "soil_type": row["soil_type"],
             "farming_type": row["farming_type"],
+            "county": row["county"], "sub_county": row["sub_county"], "ward": row["ward"],
         } for row in cursor.fetchall()]
         return {"ok": True, "plots": plots}
     except Exception:

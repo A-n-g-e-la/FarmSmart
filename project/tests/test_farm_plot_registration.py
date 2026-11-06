@@ -22,22 +22,22 @@ class PlotRegistrationServiceTests(unittest.TestCase):
         helper = patch("app.services.farm_plot_service.get_db_connection", return_value=self.connection)
         self.get_connection = helper.start()
         self.addCleanup(helper.stop)
-        self.data = {"plot_name": " North plot ", "area_acres": "1.250"}
+        self.data = {"plot_name": " North plot ", "area_acres": "1.250", "sub_county": "Moiben", "ward": "Moiben"}
 
     def tearDown(self):
         self.live_connector.assert_not_called()
 
     def test_creation_uses_bound_owner_and_generated_id_then_commits(self):
         self.data.update(farmer_id=999, plot_id=999, location=" Moiben ",
-                         soil_type=" Loam ", farming_type=" Rainfed ")
+                         soil_type=" Loam ", farming_type=" Rain-fed ")
         result = register_farmer_plot(91, self.data)
         self.assertEqual(result, {"ok": True, "plot_id": 123,
                                   "message": "Farm plot registered successfully."})
         sql, params = self.cursor.execute.call_args.args
         self.assertEqual(sql, "INSERT INTO farm_plots "
-                         "(farmer_id, plot_name, area_acres, location, soil_type, farming_type) "
-                         "VALUES (%s, %s, %s, %s, %s, %s)")
-        self.assertEqual(params, (91, "North plot", Decimal("1.250"), "Moiben", "Loam", "Rainfed"))
+                         "(farmer_id, plot_name, area_acres, location, soil_type, farming_type, county, sub_county, ward) "
+                         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)")
+        self.assertEqual(params, (91, "North plot", Decimal("1.250"), "Moiben", "Loam", "Rain-fed", "Uasin Gishu", "Moiben", "Moiben"))
         self.assertEqual(self.connection.mock_calls, [
             call.start_transaction(), call.cursor(), call.cursor().execute(sql, params),
             call.commit(), call.cursor().close(), call.close(),
@@ -51,7 +51,7 @@ class PlotRegistrationServiceTests(unittest.TestCase):
         sql, params = self.cursor.execute.call_args.args
         self.assertNotIn(self.data["plot_name"], sql)
         self.assertEqual(params[1], self.data["plot_name"])
-        self.assertEqual(params[3:], (None, None, None))
+        self.assertEqual(params[3:], (None, None, None, "Uasin Gishu", "Moiben", "Moiben"))
 
     def test_required_name_and_text_type_and_length_validation(self):
         for field, invalid_values in {
@@ -65,6 +65,38 @@ class PlotRegistrationServiceTests(unittest.TestCase):
                     result = register_farmer_plot(91, dict(self.data, **{field: value}))
                     self.assertEqual(result["code"], "validation_error")
                     self.assertIn(field, result["errors"])
+        self.get_connection.assert_not_called()
+
+    def test_all_documented_wards_and_standardized_choices_can_be_saved(self):
+        from app.config.plot_options import PLOT_OPTIONS
+        self.assertEqual(set(PLOT_OPTIONS["sub_counties"]),
+                         {"Ainabkoi", "Kapseret", "Kesses", "Moiben", "Soy", "Turbo"})
+        wards = [ward for entries in PLOT_OPTIONS["sub_counties"].values() for ward in entries]
+        self.assertEqual(len(wards), 30)
+        self.assertEqual(len(set(wards)), 30)
+        for sub_county, entries in PLOT_OPTIONS["sub_counties"].items():
+            for ward in entries:
+                with self.subTest(sub_county=sub_county, ward=ward):
+                    self.assertTrue(register_farmer_plot(91, dict(self.data, sub_county=sub_county, ward=ward))["ok"])
+                    self.assertEqual(self.cursor.execute.call_args.args[1][-3:], ("Uasin Gishu", sub_county, ward))
+        for field, choices in (("soil_type", PLOT_OPTIONS["soil_types"]),
+                               ("farming_type", PLOT_OPTIONS["farming_types"])):
+            for choice in choices:
+                with self.subTest(field=field, choice=choice):
+                    self.assertTrue(register_farmer_plot(91, dict(self.data, **{field: choice}))["ok"])
+
+    def test_invalid_location_pairs_and_unlisted_choices_never_connect(self):
+        for changes in ({"county": "Trans Nzoia"}, {"county": None}, {"county": []},
+                        {"sub_county": "Kitale"}, {"sub_county": None}, {"sub_county": {}},
+                        {"ward": "Langas"}, {"ward": None}, {"ward": []},
+                        {"ward": "Moiben' OR 1=1"}, {"soil_type": "Invented soil"},
+                        {"farming_type": "Mixed practice"}):
+            with self.subTest(changes=changes):
+                self.assertEqual(register_farmer_plot(91, dict(self.data, **changes))["code"], "validation_error")
+        for field in ("sub_county", "ward"):
+            missing = dict(self.data)
+            missing.pop(field)
+            self.assertEqual(register_farmer_plot(91, missing)["code"], "validation_error")
         self.get_connection.assert_not_called()
 
     def test_area_rejects_invalid_types_range_and_precision_before_connecting(self):
@@ -82,7 +114,7 @@ class PlotRegistrationServiceTests(unittest.TestCase):
         for value in ("0.001", "999999.999", "100000", 1, 1.25, " 1.250 "):
             with self.subTest(value=value):
                 data = dict(self.data, area_acres=value, plot_name="n" * 100,
-                            location="l" * 150, soil_type="s" * 100, farming_type="f" * 100)
+                            location="l" * 150, soil_type="Unknown", farming_type="Unknown")
                 self.assertTrue(register_farmer_plot(91, data)["ok"])
                 self.assertEqual(self.cursor.execute.call_args.args[1][2], Decimal(str(value).strip()))
 
@@ -169,7 +201,7 @@ class PlotRegistrationEndpointTests(unittest.TestCase):
         helper = patch("app.services.farm_plot_service.get_db_connection", return_value=self.connection)
         self.get_connection = helper.start()
         self.addCleanup(helper.stop)
-        self.data = {"plot_name": "North plot", "area_acres": "1.250"}
+        self.data = {"plot_name": "North plot", "area_acres": "1.250", "sub_county": "Moiben", "ward": "Moiben"}
 
     def tearDown(self):
         self.live_connector.assert_not_called()
@@ -210,19 +242,20 @@ class PlotRegistrationEndpointTests(unittest.TestCase):
         self.assertIn('id="plot-form"', home.get_data(as_text=True))
         self.get_connection.assert_not_called()
         token = self.token()
-        response = self.client.post("/farmer/plots", json=dict(self.data, farming_type="Mixed practice"),
+        response = self.client.post("/farmer/plots", json=dict(self.data, farming_type="Rain-fed"),
                                     headers={"X-CSRF-Token": token})
         self.assertEqual(response.status_code, 201)
         self.cursor.fetchall.return_value = [{
             "plot_id": 123, "plot_name": "North plot", "area_acres": Decimal("1.250000"),
-            "location": None, "soil_type": None, "farming_type": "Mixed practice",
+            "location": None, "soil_type": None, "farming_type": "Rain-fed",
+            "county": "Uasin Gishu", "sub_county": "Moiben", "ward": "Moiben",
         }]
         listing = self.client.get("/farmer/plots")
         self.assertEqual(listing.status_code, 200)
         self.assertEqual(listing.headers["Cache-Control"], "no-store")
         self.assertEqual(listing.json["plots"][0]["plot_id"], response.json["plot_id"])
         self.assertEqual(listing.json["plots"][0]["area_acres"], "1.250000")
-        self.assertEqual(listing.json["plots"][0]["farming_type"], "Mixed practice")
+        self.assertEqual(listing.json["plots"][0]["farming_type"], "Rain-fed")
         self.assertEqual(self.cursor.execute.call_args.args[1], (91,))
 
     def test_json_numbers_keep_submitted_precision(self):

@@ -30,19 +30,19 @@ class PlotUpdateServiceTests(unittest.TestCase):
         name = "North'); DROP TABLE farm_plots; --"
         result = update_farmer_plot(91, 12, {
             "plot_name": name, "area_acres": " 2.750 ", "location": " Moiben ",
-            "soil_type": " Loam ", "farming_type": " Mixed practice ",
+            "soil_type": " Loam ", "farming_type": " Rain-fed ",
         })
         self.assertEqual(result, {"ok": True, "plot_id": 12, "message": "Farm plot updated successfully."})
         select = "SELECT plot_id FROM farm_plots WHERE plot_id = %s AND farmer_id = %s FOR UPDATE"
         update = "UPDATE farm_plots SET plot_name = %s, area_acres = %s, location = %s, soil_type = %s, farming_type = %s WHERE plot_id = %s AND farmer_id = %s"
         self.assertEqual(self.cursor.execute.call_args_list, [
             call(select, (12, 91)),
-            call(update, (name, Decimal("2.750"), "Moiben", "Loam", "Mixed practice", 12, 91)),
+            call(update, (name, Decimal("2.750"), "Moiben", "Loam", "Rain-fed", 12, 91)),
         ])
         self.assertNotIn(name, update)
         self.assertEqual(self.connection.mock_calls, [
             call.start_transaction(), call.cursor(), call.cursor().execute(select, (12, 91)),
-            call.cursor().fetchone(), call.cursor().execute(update, (name, Decimal("2.750"), "Moiben", "Loam", "Mixed practice", 12, 91)),
+            call.cursor().fetchone(), call.cursor().execute(update, (name, Decimal("2.750"), "Moiben", "Loam", "Rain-fed", 12, 91)),
             call.commit(), call.cursor().close(), call.close(),
         ])
         self.connection.rollback.assert_not_called()
@@ -53,6 +53,26 @@ class PlotUpdateServiceTests(unittest.TestCase):
             "UPDATE farm_plots SET location = %s WHERE plot_id = %s AND farmer_id = %s",
             ("New location", 12, 91),
         ))
+
+    def test_location_change_saves_complete_pair_without_changing_legacy_details(self):
+        result = update_farmer_plot(91, 12, {
+            "county": "Uasin Gishu", "sub_county": "Kapseret", "ward": "Langas",
+        })
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.cursor.execute.call_args.args, (
+            "UPDATE farm_plots SET county = %s, sub_county = %s, ward = %s WHERE plot_id = %s AND farmer_id = %s",
+            ("Uasin Gishu", "Kapseret", "Langas", 12, 91),
+        ))
+        self.connection.commit.assert_called_once_with()
+
+    def test_incomplete_or_invalid_location_update_is_rejected_without_database(self):
+        for data in ({"ward": "Moiben"}, {"sub_county": "Moiben", "ward": "Moiben"},
+                     {"county": "Uasin Gishu", "sub_county": "Moiben", "ward": "Langas"},
+                     {"county": "Trans Nzoia", "sub_county": "Moiben", "ward": "Moiben"},
+                     {"county": None, "sub_county": None, "ward": None}):
+            with self.subTest(data=data):
+                self.assertEqual(update_farmer_plot(91, 12, data)["code"], "validation_error")
+        self.get_connection.assert_not_called()
 
     def test_optional_fields_can_be_cleared_using_null_or_blank(self):
         result = update_farmer_plot(91, 12, {"location": None, "soil_type": " ", "farming_type": None})
@@ -99,7 +119,7 @@ class PlotUpdateServiceTests(unittest.TestCase):
             with self.subTest(area=value):
                 self.assertTrue(update_farmer_plot(91, 12, {
                     "plot_name": "n" * 100, "area_acres": value, "location": "l" * 150,
-                    "soil_type": "s" * 100, "farming_type": "f" * 100,
+                    "soil_type": "Unknown", "farming_type": "Unknown",
                 })["ok"])
                 self.assertEqual(self.cursor.execute.call_args.args[1][1], Decimal(str(value)))
 

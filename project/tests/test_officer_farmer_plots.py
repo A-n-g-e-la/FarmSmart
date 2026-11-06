@@ -37,6 +37,7 @@ class OfficerFarmerPlotTests(unittest.TestCase):
         self.records = [{
             "farmer_id": farmer, "plot_id": plot, "plot_name": name,
             "area_acres": Decimal("1.234000"), "location": None, "soil_type": "Loam", "farming_type": "Mixed practice",
+            "county": None, "sub_county": None, "ward": None,
             "password_hash": "private-hash", "user_id": 999, "phone_number": "private-phone", "created_at": "private-date",
         } for farmer, plot, name in ((101, 11, "North"), (101, 12, "South"), (102, 13, "Other officer's plot"),
                                     (103, 14, "Unassigned plot"), (105, 15, "Pending farmer's plot"))]
@@ -74,6 +75,7 @@ class OfficerFarmerPlotTests(unittest.TestCase):
         self.assertEqual(response.json, {"ok": True, "farmer_id": 101, "plots": [{
             "plot_id": plot, "plot_name": name, "area_acres": "1.234000", "location": None,
             "soil_type": "Loam", "farming_type": "Mixed practice",
+            "county": None, "sub_county": None, "ward": None,
         } for plot, name in ((11, "North"), (12, "South"))]})
         self.lookup.assert_called_once_with(41, 91)
         for forbidden in ("private", "password", "user_id", "phone_number", "created_at", "Other officer", "Unassigned plot"):

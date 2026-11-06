@@ -148,3 +148,33 @@ Stage 2C decisions: [USSD persistence contract](../../docs/ussd-persistence.md).
 
 MariaDB client reference:
 [abort-source-on-error](https://mariadb.com/docs/server/clients-and-utilities/mariadb-client/mariadb-command-line-client).
+
+# Plot administrative location: 003 (NOT EXECUTED)
+
+`003_plot_administrative_location.sql` adds only nullable `county VARCHAR(50)`,
+`sub_county VARCHAR(100)` and `ward VARCHAR(100)` to `farm_plots`. These match
+the fresh-install schema. It preserves every existing record and does not
+backfill county or reinterpret the existing `location`, `soil_type` or
+`farming_type` columns. New application code requires the three columns.
+
+Execution requires separate approval, a verified current restorable backup,
+paused plot writers, MariaDB 10.4+, and the existing InnoDB acreage schema
+(`area_acres DECIMAL(12,6)`). Migration 002 is independent of these plot columns.
+Confirm the intended database and inspect its schema first. No database was
+accessed and no migration was executed during Feature B.
+
+For a later approved operation, use an interactive authenticated MariaDB client
+with `--abort-source-on-error` (never `--force`). In the same session, after
+performing the checks, set `@farmadvis_plot_location_approved = 1`,
+`@farmadvis_backup_verified = 1`, `@farmadvis_plot_writes_paused = 1`, then source
+`project/schema/migrations/003_plot_administrative_location.sql` from the
+repository root. These flags record operator confirmations; they do not perform
+a backup or stop writers. The script refuses unexpected acreage schemas or any
+existing administrative column.
+
+DDL implicitly commits; this is not an idempotent migration. Inspect actual
+state after any failure rather than blindly retrying. Verify SHOW CREATE TABLE,
+unchanged existing data/ownership and NULL new fields on old plots, deploy the
+matching application, then verify new/edited plot behavior before resuming
+writers. Never execute the entire fresh-install schema on an existing database.
+See [Feature B behavior and compatibility](../../docs/plot-location-dropdowns.md).

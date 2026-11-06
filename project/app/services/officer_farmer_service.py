@@ -65,7 +65,7 @@ def get_assigned_farmer_plots(agricultural_officer_id, farmer_id):
         # distinguishes an assigned farmer with zero plots from an inaccessible one.
         cursor.execute(
             "SELECT f.farmer_id, p.plot_id, p.plot_name, p.area_acres, "
-            "p.location, p.soil_type, p.farming_type FROM farmers AS f "
+            "p.location, p.soil_type, p.farming_type, p.county, p.sub_county, p.ward FROM farmers AS f "
             "JOIN users AS u ON u.user_id = f.user_id "
             "LEFT JOIN farm_plots AS p ON p.farmer_id = f.farmer_id "
             "WHERE f.farmer_id = %s AND f.assigned_officer_id = %s "
@@ -84,6 +84,7 @@ def get_assigned_farmer_plots(agricultural_officer_id, farmer_id):
             "location": row["location"],
             "soil_type": row["soil_type"],
             "farming_type": row["farming_type"],
+            "county": row["county"], "sub_county": row["sub_county"], "ward": row["ward"],
         } for row in rows if row["plot_id"] is not None]
         return {"ok": True, "farmer_id": farmer_id, "plots": plots}
     except Exception:

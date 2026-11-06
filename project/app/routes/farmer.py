@@ -10,6 +10,7 @@ from app.services.authentication_service import authenticate_farmer
 from app.services.farm_plot_service import get_farmer_plots, register_farmer_plot, update_farmer_plot
 from app.services.registration_service import register_farmer
 from app.services.farmer_ussd_pin_service import save_farmer_ussd_pin
+from app.config.plot_options import PLOT_OPTIONS
 
 
 farmer_bp = Blueprint("farmer", __name__, url_prefix="/farmer")
@@ -195,6 +196,7 @@ def _dashboard(pin_error=None, status=200):
         "farmer/dashboard.html", farmer_name=g.farmer_identity.get("first_name"),
         logout_csrf_token=csrf_token("logout"),
         ussd_pin_csrf_token=csrf_token("ussd_pin"), ussd_pin_error=pin_error,
+        plot_options={key: PLOT_OPTIONS[key] for key in ("county", "sub_counties", "soil_types", "farming_types")},
     ), status, {"Cache-Control": "no-store"}
 
 

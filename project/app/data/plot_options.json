@@ -1,0 +1,15 @@
+{
+  "county": "Uasin Gishu",
+  "sub_counties": {
+    "Ainabkoi": ["Kapsoya", "Ainabkoi/Olare", "Kaptagat"],
+    "Kapseret": ["Simat/Kapseret", "Langas", "Ngeria", "Megun", "Kipkenyo"],
+    "Kesses": ["Tarakwa", "Cheptiret/Kipchamo", "Tulwet/Chuiyat", "Racecourse"],
+    "Moiben": ["Tembelio", "Kimumu", "Karuna/Meibeki", "Moiben", "Sergoit"],
+    "Soy": ["Kuinet/Kapsuswa", "Kapkures", "Ziwa", "Segero/Barsombe", "Kipsomba", "Soy", "Moi's Bridge"],
+    "Turbo": ["Ngenyilel", "Tapsagoi", "Kiplombe", "Kapsaos", "Huruma", "Kamagut"]
+  },
+  "farming_types": ["Rain-fed", "Irrigated", "Rain-fed with supplementary irrigation", "Unknown"],
+  "soil_types": ["Clay", "Clay loam", "Loam", "Sandy loam", "Sandy", "Silt loam", "Mixed", "Unknown"],
+  "source": "Uasin Gishu CIDP 2023-2027, printed page 6 (PDF page 26), Table 2; spacing around slashes normalized.",
+  "source_url": "https://ugcountyassembly.or.ke/participation/downloadfile/data/County%20Integrated%20Development%20Plan%20%28CIDP%29%20-%202023-2027.pdf"
+}
