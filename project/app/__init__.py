@@ -6,10 +6,12 @@ from app.routes.farmer import farmer_bp
 from app.routes.officer import officer_bp
 from app.routes.ussd import ussd_bp
 from app.cli import approve_officer_command, assign_farmer_command
+from app.services.ussd_rate_limiter import LocalUssdLimiter
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+    app.extensions["ussd_local_limiter"] = LocalUssdLimiter()
     # A random process-local key supports development without writing local secrets.
     # Set SECRET_KEY in the environment for persistence across restarts/workers.
     if not app.secret_key:

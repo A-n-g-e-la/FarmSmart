@@ -21,6 +21,7 @@ with patch.object(dotenv, "load_dotenv", return_value=False):
     from app.models.ussd_fingerprints import derive_session_key
     from app.services.ussd_authentication_service import authenticate_ussd_pin, advance_ussd_menu
     from app.services.ussd_hash_capacity import scrypt_slot
+    from app.services.ussd_rate_limiter import LocalUssdLimiter
     from app.services.ussd_pin_service import hash_ussd_pin, verify_ussd_pin, UssdPinError
 
 from test_ussd_callback_foundation import OfflineConnector, OfflineSharedLimiter, NOW, PHONE, CODE, RELAY, METADATA
@@ -161,6 +162,53 @@ class UssdMenuIntegrationTests(unittest.TestCase):
         self.assertEqual(self.post(sid=sid, phone=phone), SAFE_RESPONSES["welcome"])
         self.assertEqual(self.post("1", sid, phone), SAFE_RESPONSES["pin_prompt"])
         return derive_session_key(base64.b64decode(METADATA), CODE, sid)
+
+    def enable_local_limiter(self):
+        self.app.config.update(USSD_RATE_LIMITING_ENABLED=True, USSD_RATE_LIMIT_MAX_KEYS=4096)
+        self.app.extensions["ussd_local_limiter"] = LocalUssdLimiter(clock=lambda: self.clock.timestamp())
+
+    def test_local_admission_preserves_pin_lockout_across_dials(self):
+        self.enable_local_limiter()
+        for attempt in range(3):
+            sid = "local-lockout-" + str(attempt)
+            self.prompt(sid)
+            self.assertEqual(self.post("1*9999", sid), SAFE_RESPONSES["verification_failed"])
+            self.clock += timedelta(seconds=10)
+        self.assertEqual(self.db.credentials[91]["failed_attempts"], 3)
+        self.assertEqual(self.verifier.call_count, 3)
+        # Expire ingress windows, while the independent PIN lockout is active.
+        self.clock += timedelta(seconds=60)
+        self.prompt("local-locked")
+        self.assertEqual(self.post("1*0042", "local-locked"), SAFE_RESPONSES["verification_failed"])
+        self.assertEqual(self.verifier.call_count, 3)
+        self.assertEqual(self.db.credentials[91]["failed_attempts"], 3)
+
+    def test_local_admission_preserves_success_replay_and_session_expiry(self):
+        self.enable_local_limiter()
+        key = self.prompt()
+        self.assertEqual(self.post("1*0042"), SAFE_RESPONSES["pin_verified"])
+        before = copy.deepcopy((self.db.sessions, self.db.callbacks, self.db.credentials))
+        self.assertEqual(self.post("1*0042"), SAFE_RESPONSES["pin_verified"])
+        self.assertEqual((self.db.sessions, self.db.callbacks, self.db.credentials), before)
+        self.verifier.assert_called_once()
+        self.clock += timedelta(seconds=181)
+        self.assertEqual(self.post("1*0042*1"), SAFE_RESPONSES["verification_failed"])
+        self.assertEqual(self.db.sessions[key], before[0][key])
+        self.verifier.assert_called_once()
+
+    def test_local_phone_rejection_does_not_open_transaction_or_hash(self):
+        self.enable_local_limiter()
+        self.app.config["USSD_PHONE_CALLBACK_BURST"] = 2
+        self.prompt()
+        before = copy.deepcopy((self.db.sessions, self.db.callbacks, self.db.credentials))
+        connections = len(self.db.connections)
+        response = self.client.post("/ussd", base_url="https://localhost", data={
+            "sessionId": "menu-session", "serviceCode": CODE, "phoneNumber": PHONE, "text": "1*0042",
+        }, headers={"X-FarmAdvis-USSD-Relay": RELAY}, environ_overrides={"REMOTE_ADDR": "10.0.0.8"})
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(len(self.db.connections), connections)
+        self.assertEqual((self.db.sessions, self.db.callbacks, self.db.credentials), before)
+        self.verifier.assert_not_called()
 
     def test_full_flow_persists_identical_success_menu_and_exits(self):
         key = self.prompt()

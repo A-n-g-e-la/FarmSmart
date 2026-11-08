@@ -72,6 +72,12 @@ will fail closed. No ProxyFix or global web-security behavior is changed here.
 
 ## Shared admission interface
 
+The separate [single-process prototype limiter](ussd-rate-limiting.md) is an
+optional outer admission layer, including for legacy callbacks. It is disabled
+by default and does not satisfy or relax the shared-adapter requirement below.
+Public persistent authentication remains disabled; provider-origin verification
+is deferred as a prototype limitation, not claimed by the local limiter.
+
 Trusted host startup code must install an audited `SharedCallbackLimiter`
 subclass at `app.extensions["ussd_shared_limiter"]`, explicitly declaring
 `deployment_wide = True`. No working local or external adapter is shipped.

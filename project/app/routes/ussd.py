@@ -9,6 +9,7 @@ from app.services.ussd_callback_security import (
     CallbackRefused, UNAVAILABLE, admit_callbacks, load_callback_settings, verify_relay,
 )
 from app.services.ussd_callback_service import orchestrate_callback
+from app.services.ussd_rate_limiter import admit_local_callback
 
 
 ussd_bp = Blueprint("ussd", __name__)
@@ -42,8 +43,15 @@ def oversized_callback(error):
 
 @ussd_bp.post("/ussd")
 def callback():
+    try:
+        admit_local_callback()  # Global limit before body parsing, including legacy.
+    except CallbackRefused as error:
+        return _reply(UNAVAILABLE, error.status)
     if current_app.config.get("USSD_PERSISTENT_FLOW_ENABLED", False) is False:
-        return _callback_body()
+        try:
+            return _callback_body()
+        except CallbackRefused as error:
+            return _reply(UNAVAILABLE, error.status)
     try:
         settings = load_callback_settings()
         verify_relay(settings)
@@ -88,10 +96,11 @@ def _callback_body(settings=None):
             or (text and not re.fullmatch(r"[0-9]+(?:\*[0-9]+)*", text))):
         return _reply(INVALID_REQUEST, 400)
 
+    phone = normalize_kenyan_phone(form["phoneNumber"])
+    admit_local_callback(phone, initial=text == "")
     if settings is not None:
         if code != settings.service_code:
             return _reply(INVALID_REQUEST, 400)
-        phone = normalize_kenyan_phone(form["phoneNumber"])
         admit_callbacks(settings, fingerprint_phone(settings.metadata_key, phone), initial=text == "")
         return _reply(orchestrate_callback(settings, form["sessionId"], code, phone, text))
 

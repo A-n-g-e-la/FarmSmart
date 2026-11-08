@@ -16,6 +16,10 @@ class Config:
     USSD_PERSISTENT_FLOW_ENABLED = {"true": True, "false": False}.get(
         os.getenv("USSD_PERSISTENT_FLOW_ENABLED", "false").lower(), "invalid")
     USSD_RELAY_SECRET = os.getenv("USSD_RELAY_SECRET")
+    # Independent single-process prototype protection; does not enable auth.
+    USSD_RATE_LIMITING_ENABLED = {"true": True, "false": False}.get(
+        os.getenv("USSD_RATE_LIMITING_ENABLED", "false").lower(), "invalid")
+    USSD_RATE_LIMIT_MAX_KEYS = os.getenv("USSD_RATE_LIMIT_MAX_KEYS", 4096)
     USSD_TRUSTED_RELAY_IPS = os.getenv("USSD_TRUSTED_RELAY_IPS")
     AFRICASTALKING_API_KEY = os.getenv("AFRICASTALKING_API_KEY")
     USSD_PHONE_CALLBACKS_PER_MINUTE = os.getenv("USSD_PHONE_CALLBACKS_PER_MINUTE", 20)
