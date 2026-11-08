@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import dotenv
 from mysql.connector import Error, IntegrityError
+from mysql.connector.errors import ReadTimeoutError
 
 with patch.object(dotenv, "load_dotenv", return_value=False):
     from app.models.ussd_fingerprints import derive_session_key, fingerprint_input, fingerprint_phone
@@ -519,6 +520,23 @@ class UssdPersistenceTests(unittest.TestCase):
                     self.connection.rollback.assert_called_once_with()
                 target.side_effect = None
                 self.cursor.fetchone.side_effect = self.fetch
+
+    def test_read_timeout_after_attempt_update_rolls_back_entire_unit(self):
+        def execute(sql, params):
+            if "FROM ussd_sessions" in sql:
+                raise ReadTimeoutError("synthetic-sensitive-timeout-detail")
+        self.cursor.execute.side_effect = execute
+        with self.assertRaises(UssdPersistenceError) as error:
+            with ussd_transaction() as store:
+                store.set_attempt_state(91, 1, None, NOW)
+                store.get_session(SESSION_KEY)
+        self.assertNotIn("synthetic-sensitive", str(error.exception))
+        self.assertTrue(any(item.args[0].startswith("UPDATE farmer_ussd_credentials")
+                            for item in self.cursor.execute.call_args_list))
+        self.connection.commit.assert_not_called()
+        self.connection.rollback.assert_called_once_with()
+        self.cursor.close.assert_called_once_with()
+        self.connection.close.assert_called_once_with()
 
     def test_cleanup_errors_do_not_log_diagnostics_or_prevent_connection_close(self):
         self.cursor.close.side_effect = Error("private-pin-and-phone")

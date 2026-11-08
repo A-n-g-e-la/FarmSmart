@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
 
-from app.db import get_db_connection
+from app.db import get_ussd_db_connection as get_db_connection
 
 
 logger = logging.getLogger(__name__)
