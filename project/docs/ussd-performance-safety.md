@@ -82,10 +82,20 @@ validation, session setup ordering, cleanup, read/write/query/lock failures and
 uncertain commit acknowledgement. They do not prove real MariaDB cancellation
 or network timing. Existing USSD/authentication/rate-limiter tests are reused.
 
-The isolated integration runner currently accepts only its original exact
-connection keyword set and supplies its own 5/10/10-second socket limits. It
-will reject the new USSD timeout keywords before connecting. Before rerunning
-database-backed scenarios, separately review a narrow guard update that accepts
-only the approved timeout arguments while preserving all target/account/schema
-checks. Do not bypass or weaken that guard. The runner and its protected target
-restrictions are unchanged by this feature.
+The isolated integration runner now accepts either its original exact five
+identity arguments (retaining 5/10/10-second socket defaults), or those arguments
+plus all three explicit socket timeouts. Explicit values must be actual integers
+from 1 to 30 and are forwarded unchanged; aliases, partial sets and unrelated
+options remain forbidden. All target/account/privilege/schema restrictions and
+fresh-process isolation are retained. Synthetic application configuration uses
+the approved USSD timeout defaults explicitly.
+
+Five timeout scenarios are prepared alongside the original 20 integration cases.
+They cover session-value readback, injected SQL failures, row-lock contention,
+statement cancellation and a client read timeout. They have not been executed;
+offline collection and guard tests do not certify MariaDB timing/error behavior.
+See the [integration procedure](../tests/integration/README.md) for ownership,
+cleanup, finite waits and the proposed read-only preflight. Obtain separate
+approval for database inspection and execution; do not bypass the guard or use
+development data. No application timeout or authentication policy is changed by
+this integration-test extension.

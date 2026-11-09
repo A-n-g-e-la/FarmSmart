@@ -1,6 +1,10 @@
 # Opt-in MariaDB integration tests — Phase 6A
 
 **Prepared only. No database-backed tests were run during implementation.**
+The timeout extension now prepares 25 scenarios (the original 20 plus five).
+Earlier results for 20 scenarios do not validate the added timeout behavior.
+The extended suite must not run until separately approved database preflight
+and execution authorization have been obtained.
 These tests create and delete synthetic rows, using real application services,
 repositories, Flask test clients, InnoDB transactions and PIN hashing. They do
 not need Flask/ngrok servers, provider access, SMS, new packages, or persistent
@@ -61,9 +65,15 @@ no production/application secrets are loaded or generated persistently.
 Every connection validates its exact arguments and loopback resolution before
 connecting, then selected database, server version, port, SQL mode, isolation,
 constraint enforcement and account privileges. Unexpected targets/options are
-rejected, resources closed, and diagnostics sanitized. Connect timeout is five
-seconds; socket read/write timeouts are ten seconds. These are not server-wide
-query/lock timeouts. The schema-scoped account supplies a database-enforced
+rejected, resources closed, and diagnostics sanitized. The guard accepts exactly
+the five identity arguments, or those same five plus all three timeout keywords:
+`connection_timeout`, `read_timeout`, `write_timeout`. Explicit values must be
+actual integers from 1 to 30 inclusive; partial sets, booleans, strings, aliases
+and unrelated options are rejected. Explicit values are forwarded unchanged.
+With no timeout keywords, fixture/general-web connections retain a five-second
+connection timeout and ten-second socket read/write limits. USSD connections use
+the application's 3/5/5-second defaults. These are not server-wide settings.
+The schema-scoped account supplies a database-enforced
 boundary as well as the Python guard. No test-side safety control makes using
 an administrator account acceptable.
 
@@ -108,7 +118,7 @@ callback history, replay/expiry, rollback and synchronized races. USSD services
 are called directly; persistent callback ingress is not enabled or certified by
 this suite. Test wrappers inject selected failures after real SQL and coordinate
 after real hashing; they do not substitute a fake SQL engine or weaken scrypt.
-All 20 cases are executable unittest methods and collection asserts that exact
+All 25 cases are executable unittest methods and collection asserts that exact
 count without running them. Thread pools have at most two workers; barriers/events
 wait at most 15 seconds and future result waits are bounded at 30 seconds. Executor
 shutdown still waits for workers: these are not hard process-kill deadlines or a
@@ -126,6 +136,72 @@ the separately approved real run; uncertain commit/network outcomes are not
 simulated as proven rollback guarantees.
 
 ## Offline isolation and remaining checks
+
+### Prepared timeout scenarios (not executed)
+
+Five additional cases cover:
+
+1. Real USSD-helper connection, session values (2-second lock wait, 3-second
+   statement time), a repository transaction, and unchanged fixture-session
+   values on a fresh connection. No intentional delay.
+2. Failure injected after actual session-initialization SQL or an attempt-state
+   UPDATE, checking closed connections and unchanged synthetic credential state.
+   This is fault injection, not a real network outage. No intentional delay.
+3. Two separately owned connections contending for a synthetic user's row lock.
+   The waiter must receive error 1205 after approximately two seconds; its prior
+   synthetic update must be rolled back. No thread sharing of connections.
+4. Read-only `SELECT SLEEP(6)` under the default three-second statement limit;
+   require MariaDB error 1969, rather than successful completion or a client error.
+5. Read-only `SELECT SLEEP(6)` with test-only read timeout 1 and statement timeout
+   5, so the client has time to fail first. Require a connector read-timeout or
+   lost-connection error, not server error 1969. Configuration is restored even
+   if initialization or assertions fail. The C extension may report 2013/2055
+   rather than the pure-Python ReadTimeoutError type.
+
+Connections and cursors are owned by each case and have `finally` rollback/close
+attempts. After a socket failure the connector may already be disconnected;
+rollback/cursor-close errors do not mask the original failure if connection close
+succeeds. A connection-close failure always fails the case. SQL sleeps are finite
+(six seconds), session statement limits remain finite, and socket waits are
+bounded. Timing assertions allow scheduling tolerance up to ten seconds; they
+are observations after return, not hard process-kill deadlines. These tests do
+not simulate a hung kernel or guarantee an overall deadline.
+
+The existing tagged-fixture cleanup and seven-table empty-schema checks remain
+mandatory. Connection-establishment failures, write timeouts and uncertain commit
+acknowledgements remain mocked in offline tests. Do not stop MariaDB, alter
+networking, broaden privileges or touch global settings to induce failures.
+Actual MariaDB acceptance, timing, error codes and cleanup remain unverified
+until separately approved execution of this extended suite.
+
+### Proposed read-only preflight (requires separate approval)
+
+Load the existing dedicated TEST_MYSQL_* credentials using the established
+DPAPI-protected procedure, without printing them. Do not load the development
+`.env`. From `project`, the following inspects only the approved integration
+target and does not import/build/run the scenario suite:
+
+```powershell
+@'
+import os
+import sys
+sys.path.insert(0, "tests/integration")
+from mariadb_runner import Settings, isolated_runtime
+settings = Settings.from_environment(dict(os.environ, RUN_MARIADB_INTEGRATION_TESTS="1"))
+if (settings.host != "localhost" or settings.port != 3306
+        or settings.database != "farmadvis_integration_20261108_a9f19e3c"
+        or settings.user != "farmadvis_it_a9f19e3c"):
+    raise SystemExit("Unapproved integration target; no connection attempted.")
+with isolated_runtime(settings) as runtime:
+    runtime.assert_empty_schema()
+print("Read-only integration identity, privileges, schema and empty-table checks passed.")
+'@ | .\.venv\Scripts\python.exe -B -
+```
+
+The preflight uses SELECT metadata/count queries and closes its read
+transactions; it performs no fixture DML, session-timeout SETs, schema changes or
+scenario execution. It must refuse non-empty or mismatched schema state. Its
+success does not prove timeout behavior and does not authorize running the suite.
 
 This directory deliberately has no `__init__.py` and no `test*.py` modules.
 Ordinary `unittest discover -s tests` excludes these database cases. The normal

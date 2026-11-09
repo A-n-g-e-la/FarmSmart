@@ -77,15 +77,22 @@ class ConnectionGuard:
         connection = cursor = None
         try:
             expected = self.settings.connection_arguments()
-            if args or set(kwargs) != set(expected) or any(
+            timeout_names = {"connection_timeout", "read_timeout", "write_timeout"}
+            supplied = set(kwargs) - set(expected)
+            if (args or not set(expected).issubset(kwargs)
+                    or supplied not in (set(), timeout_names) or any(
                     type(kwargs[key]) is not type(value) or kwargs[key] != value
-                    for key, value in expected.items()):
+                    for key, value in expected.items())):
                 raise IntegrationSafetyError()
+            timeouts = dict(connection_timeout=5, read_timeout=TIMEOUT, write_timeout=TIMEOUT)
+            if supplied:
+                if any(type(kwargs[name]) is not int or not 1 <= kwargs[name] <= 30 for name in timeout_names):
+                    raise IntegrationSafetyError()
+                timeouts = {name: kwargs[name] for name in timeout_names}
             addresses = self.resolver(self.settings.host, 3306, type=socket.SOCK_STREAM)
             if not addresses or not all(ipaddress.ip_address(row[4][0]).is_loopback for row in addresses):
                 raise IntegrationSafetyError()
-            connection = self.connector(**expected, connection_timeout=5, read_timeout=TIMEOUT,
-                                        write_timeout=TIMEOUT, charset="utf8mb4",
+            connection = self.connector(**expected, **timeouts, charset="utf8mb4",
                                         collation="utf8mb4_unicode_ci", get_warnings=True)
             cursor = connection.cursor(dictionary=True)
             cursor.execute("SELECT DATABASE() AS db, VERSION() AS version, @@port AS port, "
@@ -145,6 +152,8 @@ def synthetic_config(settings):
                 USSD_PIN_CURRENT_KEY_VERSION="1",
                 USSD_METADATA_HMAC_KEY=base64.b64encode(secrets.token_bytes(32)).decode("ascii"),
                 USSD_SERVICE_CODE="*384*999#", USSD_PERSISTENT_FLOW_ENABLED=False,
+                USSD_DB_CONNECTION_TIMEOUT=3, USSD_DB_READ_TIMEOUT=5, USSD_DB_WRITE_TIMEOUT=5,
+                USSD_DB_LOCK_WAIT_TIMEOUT=2, USSD_DB_STATEMENT_TIMEOUT=3,
                 USSD_RELAY_SECRET=None, USSD_TRUSTED_RELAY_IPS=None, AFRICASTALKING_API_KEY=None,
                 SESSION_COOKIE_SECURE=False)
 

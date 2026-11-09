@@ -127,6 +127,67 @@ class MariaDbIntegrationSafetyTests(unittest.TestCase):
             self.connection.close.assert_called_once_with()
             self.identity[field] = original
 
+    def test_explicit_timeout_form_forwards_valid_values_unchanged(self):
+        for values in ((3, 5, 5), (1, 1, 1), (30, 30, 30), (2, 7, 11)):
+            options = dict(zip(("connection_timeout", "read_timeout", "write_timeout"), values))
+            with self.subTest(values=values):
+                self.assertIs(self.guard(**self.settings.connection_arguments(), **options), self.connection)
+                forwarded = self.raw.call_args.kwargs
+                self.assertEqual(tuple(forwarded[name] for name in options), values)
+                for name, value in self.settings.connection_arguments().items():
+                    self.assertEqual(forwarded[name], value)
+                self.assertEqual(forwarded["collation"], "utf8mb4_unicode_ci")
+
+    def test_invalid_or_partial_timeout_sets_never_connect(self):
+        base = self.settings.connection_arguments()
+        options = dict(connection_timeout=3, read_timeout=5, write_timeout=5)
+        from itertools import combinations
+        for size in (1, 2):
+            for names in combinations(options, size):
+                with self.subTest(partial=names), self.assertRaises(runner.IntegrationSafetyError):
+                    self.guard(**base, **{name: options[name] for name in names})
+        for name in options:
+            for value in (True, False, None, 0, -1, 31, 1.5, "3", "", float("inf")):
+                with self.subTest(name=name, value=value), self.assertRaises(runner.IntegrationSafetyError):
+                    self.guard(**base, **dict(options, **{name: value}))
+        self.raw.assert_not_called()
+        self.resolver.assert_not_called()
+
+    def test_explicit_timeouts_do_not_allow_target_alias_or_option_overrides(self):
+        base = dict(self.settings.connection_arguments(), connection_timeout=3, read_timeout=5, write_timeout=5)
+        for changes in ({"database": "farmsmart"}, {"user": "root"}, {"host": "remote.invalid"},
+                        {"port": 3307}, {"password": "different"}, {"connect_timeout": 3},
+                        {"db": "farmsmart"}, {"option_files": "private"}, {"unix_socket": "private"},
+                        {"pool_name": "private"}, {"failover": []}, {"ssl_disabled": True}):
+            with self.subTest(option=next(iter(changes))), self.assertRaises(runner.IntegrationSafetyError):
+                self.guard(**dict(base, **changes))
+        for required in self.settings.connection_arguments():
+            missing = dict(base)
+            del missing[required]
+            with self.assertRaises(runner.IntegrationSafetyError):
+                self.guard(**missing)
+        with self.assertRaises(runner.IntegrationSafetyError):
+            self.guard(base)
+        self.raw.assert_not_called()
+
+    def test_explicit_timeouts_preserve_dns_identity_and_privilege_refusals(self):
+        options = dict(self.settings.connection_arguments(), connection_timeout=3, read_timeout=5, write_timeout=5)
+        self.resolver.return_value = [(2, 1, 6, "", ("192.0.2.1", 3306))]
+        with self.assertRaises(runner.IntegrationSafetyError):
+            self.guard(**options)
+        self.raw.assert_not_called()
+        self.resolver.return_value = [(2, 1, 6, "", ("127.0.0.1", 3306))]
+        self.identity["db"] = "farmsmart"
+        with self.assertRaises(runner.IntegrationSafetyError):
+            self.guard(**options)
+        self.connection.close.assert_called_once_with()
+        self.connection.reset_mock()
+        self.identity["db"] = self.settings.database
+        self.global_grants = [dict(PRIVILEGE_TYPE="SELECT", IS_GRANTABLE="NO")]
+        with self.assertRaises(runner.IntegrationSafetyError):
+            self.guard(**options)
+        self.connection.close.assert_called_once_with()
+
     def test_global_other_database_extra_and_grantable_privileges_fail_closed(self):
         self.global_grants = [dict(PRIVILEGE_TYPE="SELECT", IS_GRANTABLE="NO")]
         with self.assertRaises(runner.IntegrationSafetyError):
@@ -215,7 +276,7 @@ with patch('mysql.connector.connect',side_effect=AssertionError('Database forbid
   assert runtime.app.config['MYSQL_HOST']=='localhost'
   assert runtime.app.config['SECRET_KEY']!='development-secret'
   assert runtime.app.config['USSD_PERSISTENT_FLOW_ENABLED'] is False
-  from app.db import get_db_connection
+  from app.db import get_db_connection, get_ussd_db_connection, UssdDatabaseError
   with patch.object(runtime.guard,'connector',side_effect=RuntimeError('Synthetic connection refusal')) as blocked:
    with runtime.app.app_context():
     try:
@@ -225,6 +286,18 @@ with patch('mysql.connector.connect',side_effect=AssertionError('Database forbid
     else:
      raise AssertionError('Application connection bypassed guard')
    assert blocked.call_args.kwargs['database']==settings.database
+   assert tuple(blocked.call_args.kwargs[name] for name in ('connection_timeout','read_timeout','write_timeout'))==(5,10,10)
+   blocked.assert_called_once()
+   blocked.reset_mock()
+   with runtime.app.app_context():
+    try:
+     get_ussd_db_connection()
+    except UssdDatabaseError:
+     pass
+    else:
+     raise AssertionError('USSD connection bypassed guard')
+   assert blocked.call_args.kwargs['database']==settings.database
+   assert tuple(blocked.call_args.kwargs[name] for name in ('connection_timeout','read_timeout','write_timeout'))==(3,5,5)
    blocked.assert_called_once()
  raw.assert_not_called()
 '''
@@ -251,9 +324,83 @@ with patch('mysql.connector.connect',side_effect=AssertionError('Database forbid
         with patch("dotenv.load_dotenv", return_value=False), patch("mysql.connector.connect", side_effect=AssertionError("Database forbidden")) as connect:
             scenario_spec.loader.exec_module(scenarios)
             suite = scenarios.build_suite(None)
-            self.assertEqual(suite.countTestCases(), 20)
-            self.assertEqual(len({case.id() for case in suite}), 20)
+            self.assertEqual(suite.countTestCases(), 25)
+            self.assertEqual(len({case.id() for case in suite}), 25)
+            expected = {
+                "test_ussd_timeout_session_values_and_repository_initialization",
+                "test_ussd_injected_initialization_and_query_errors_are_safe",
+                "test_ussd_lock_wait_timeout_rolls_back_synthetic_update",
+                "test_ussd_statement_timeout_aborts_bounded_read_only_query",
+                "test_ussd_client_read_timeout_uses_scoped_test_configuration",
+            }
+            self.assertEqual({case._testMethodName for case in suite if case._testMethodName.startswith("test_ussd_")}, expected)
             connect.assert_not_called()
+
+    def test_timeout_scenario_cleanup_handles_disconnected_clients_without_real_sql(self):
+        from mysql.connector.errors import ReadTimeoutError
+        scenario_spec = importlib.util.spec_from_file_location("timeout_cleanup_scenarios", DIRECTORY / "scenarios.py")
+        scenarios = importlib.util.module_from_spec(scenario_spec)
+        with patch("dotenv.load_dotenv", return_value=False), \
+                patch("mysql.connector.connect", side_effect=AssertionError("Database forbidden")) as raw, \
+                patch("app.db.get_ussd_db_connection", return_value=self.connection):
+            scenario_spec.loader.exec_module(scenarios)
+            case_class = type(next(iter(scenarios.build_suite(None))))
+            case = case_class("test_ussd_client_read_timeout_uses_scoped_test_configuration")
+            for disconnected in (False, True):
+                self.connection.reset_mock()
+                if disconnected:
+                    self.connection.rollback.side_effect = ReadTimeoutError("synthetic-private-cleanup")
+                    self.cursor.close.side_effect = ReadTimeoutError("synthetic-private-cleanup")
+                else:
+                    self.connection.rollback.side_effect = None
+                    self.cursor.close.side_effect = None
+                with self.assertRaises(ReadTimeoutError):
+                    with case.timeout_cursor():
+                        raise ReadTimeoutError("synthetic-private-read")
+                self.connection.rollback.assert_called_once_with()
+                self.cursor.close.assert_called_once_with()
+                self.connection.close.assert_called_once_with()
+            raw.assert_not_called()
+
+    def test_timeout_scenario_connection_close_failure_is_not_silently_ignored(self):
+        from mysql.connector.errors import ReadTimeoutError
+        scenario_spec = importlib.util.spec_from_file_location("timeout_close_scenarios", DIRECTORY / "scenarios.py")
+        scenarios = importlib.util.module_from_spec(scenario_spec)
+        with patch("dotenv.load_dotenv", return_value=False), \
+                patch("mysql.connector.connect", side_effect=AssertionError("Database forbidden")) as raw, \
+                patch("app.db.get_ussd_db_connection", return_value=self.connection):
+            scenario_spec.loader.exec_module(scenarios)
+            case_class = type(next(iter(scenarios.build_suite(None))))
+            case = case_class("test_ussd_client_read_timeout_uses_scoped_test_configuration")
+            self.connection.close.side_effect = ReadTimeoutError("synthetic-private-close")
+            with self.assertRaisesRegex(RuntimeError, "^Timeout scenario cleanup failed\\.$"):
+                with case.timeout_cursor():
+                    raise ReadTimeoutError("synthetic-private-read")
+            self.connection.close.assert_called_once_with()
+            raw.assert_not_called()
+
+    def test_client_timeout_scenario_restores_configuration_after_setup_failure(self):
+        from contextlib import contextmanager
+        runtime = MagicMock()
+        runtime.app.config = {"USSD_DB_READ_TIMEOUT": 5, "USSD_DB_STATEMENT_TIMEOUT": 3}
+        original = dict(runtime.app.config)
+        @contextmanager
+        def fail_setup(case):
+            self.assertEqual(runtime.app.config["USSD_DB_READ_TIMEOUT"], 1)
+            self.assertEqual(runtime.app.config["USSD_DB_STATEMENT_TIMEOUT"], 5)
+            raise RuntimeError("Synthetic setup refusal")
+            yield  # pragma: no cover -- contextmanager protocol only
+        scenario_spec = importlib.util.spec_from_file_location("timeout_config_scenarios", DIRECTORY / "scenarios.py")
+        scenarios = importlib.util.module_from_spec(scenario_spec)
+        with patch("dotenv.load_dotenv", return_value=False), \
+                patch("mysql.connector.connect", side_effect=AssertionError("Database forbidden")) as raw:
+            scenario_spec.loader.exec_module(scenarios)
+            case_class = type(next(iter(scenarios.build_suite(runtime))))
+            case = case_class("test_ussd_client_read_timeout_uses_scoped_test_configuration")
+            with patch.object(case_class, "timeout_cursor", fail_setup), self.assertRaises(RuntimeError):
+                case.test_ussd_client_read_timeout_uses_scoped_test_configuration()
+            self.assertEqual(runtime.app.config, original)
+            raw.assert_not_called()
 
     def schema_fixture(self):
         """Complete fake metadata; individual regressions mutate real requirements."""

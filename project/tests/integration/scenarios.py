@@ -1,10 +1,13 @@
 """Real-MariaDB scenarios, loaded only by the opted-in guarded runner."""
 import base64
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import re
 import secrets
+import sys
+import time
 from threading import Barrier, Event, Lock
 from types import SimpleNamespace
 import unittest
@@ -23,6 +26,8 @@ def build_suite(runtime):
     from app.services.ussd_callback_service import orchestrate_callback
     from app.models.ussd_fingerprints import derive_session_key
     from app.services.ussd_pin_service import verify_ussd_pin
+    from app.db import get_ussd_db_connection
+    from mysql.connector.errors import Error, ReadTimeoutError
 
     class MariaDbFeatureTests(unittest.TestCase):
         password = "synthetic-integration-password"
@@ -127,6 +132,131 @@ def build_suite(runtime):
 
         def session(self, key):
             return self.rows("SELECT * FROM ussd_sessions WHERE session_key=%s", (key,))[0]
+
+        @contextmanager
+        def timeout_cursor(self):
+            """Own a guarded USSD connection; always discard its transaction."""
+            connection = cursor = None
+            try:
+                connection = get_ussd_db_connection()
+                connection.start_transaction()
+                cursor = connection.cursor(dictionary=True)
+                yield cursor
+            finally:
+                active_failure = sys.exc_info()[0] is not None
+                failed = close_failed = False
+                operations = []
+                if connection is not None:
+                    operations.append(("rollback", connection.rollback))
+                if cursor is not None:
+                    operations.append(("cursor", cursor.close))
+                if connection is not None:
+                    operations.append(("connection", connection.close))
+                for label, operation in operations:
+                    try:
+                        operation()
+                    except Exception:
+                        failed = True
+                        close_failed |= label == "connection"
+                # A socket timeout may already have disconnected the client.
+                # Still attempt all cleanup; preserve the original error only
+                # when connection.close() succeeds, never conceal a close failure.
+                if close_failed or (failed and not active_failure):
+                    raise RuntimeError("Timeout scenario cleanup failed.") from None
+
+        def test_ussd_timeout_session_values_and_repository_initialization(self):
+            statement = ("SELECT @@SESSION.innodb_lock_wait_timeout AS lock_seconds, "
+                         "@@SESSION.max_statement_time AS statement_seconds")
+            fixture_before = self.rows(statement)[0]
+            with self.timeout_cursor() as cursor:
+                cursor.execute(statement)
+                values = cursor.fetchone()
+                self.assertEqual(values["lock_seconds"], 2)
+                self.assertEqual(float(values["statement_seconds"]), 3.0)
+                cursor.execute("SELECT DATABASE() AS db")
+                self.assertEqual(cursor.fetchone()["db"], runtime.settings.database)
+            with repository.ussd_transaction() as store:
+                self.assertIsNone(store.get_credentials(self.first["farmer_id"]))
+            self.assertEqual(self.rows(statement)[0], fixture_before)
+
+        def test_ussd_injected_initialization_and_query_errors_are_safe(self):
+            with repository.ussd_transaction() as store:
+                store.ensure_credentials(self.first["farmer_id"], datetime.now(timezone.utc))
+            before = self.credential()
+            original_connector = runtime.guard.connector
+            for target in ("SET SESSION max_statement_time", "UPDATE farmer_ussd_credentials"):
+                opened = []
+                class CursorProxy:
+                    def __init__(inner, cursor):
+                        inner.cursor = cursor
+                    def __getattr__(inner, name):
+                        return getattr(inner.cursor, name)
+                    def execute(inner, sql, params=()):
+                        result = inner.cursor.execute(sql, params)
+                        if sql.startswith(target):
+                            raise Error("Synthetic injected SQL failure")
+                        return result
+                class ConnectionProxy:
+                    def __init__(inner, connection):
+                        inner.connection, inner.closed = connection, False
+                    def __getattr__(inner, name):
+                        return getattr(inner.connection, name)
+                    def cursor(inner, *args, **kwargs):
+                        return CursorProxy(inner.connection.cursor(*args, **kwargs))
+                    def close(inner):
+                        inner.connection.close()
+                        inner.closed = True
+                def connect(**kwargs):
+                    wrapped = ConnectionProxy(original_connector(**kwargs))
+                    opened.append(wrapped)
+                    return wrapped
+                with patch.object(runtime.guard, "connector", side_effect=connect):
+                    with self.assertRaises(repository.UssdPersistenceError):
+                        with repository.ussd_transaction() as store:
+                            store.set_attempt_state(self.first["farmer_id"], 1, None, datetime.now(timezone.utc))
+                self.assertEqual(len(opened), 1)
+                self.assertTrue(all(connection.closed for connection in opened))
+                self.assertEqual(self.credential(), before, "Injected failure committed attempt state.")
+
+        def test_ussd_lock_wait_timeout_rolls_back_synthetic_update(self):
+            before = self.rows("SELECT last_name FROM users WHERE user_id=%s", (self.second["user_id"],))[0]
+            with self.timeout_cursor() as holder:
+                holder.execute("SELECT user_id FROM users WHERE user_id=%s FOR UPDATE", (self.first["user_id"],))
+                self.assertIsNotNone(holder.fetchone())
+                with self.assertRaises(Error) as caught:
+                    with self.timeout_cursor() as waiter:
+                        waiter.execute("UPDATE users SET last_name='Synthetic pending' WHERE user_id=%s", (self.second["user_id"],))
+                        started = time.monotonic()
+                        waiter.execute("SELECT user_id FROM users WHERE user_id=%s FOR UPDATE", (self.first["user_id"],))
+                        waiter.fetchall()
+                elapsed = time.monotonic() - started
+                self.assertEqual(caught.exception.errno, 1205)
+                self.assertTrue(1 <= elapsed <= 10, "Unexpected lock timeout duration.")
+            self.assertEqual(self.rows("SELECT last_name FROM users WHERE user_id=%s", (self.second["user_id"],))[0], before)
+
+        def test_ussd_statement_timeout_aborts_bounded_read_only_query(self):
+            with self.assertRaises(Error) as caught:
+                with self.timeout_cursor() as cursor:
+                    started = time.monotonic()
+                    cursor.execute("SELECT SLEEP(6) AS bounded_wait")
+                    cursor.fetchall()
+            elapsed = time.monotonic() - started
+            self.assertEqual(caught.exception.errno, 1969)
+            self.assertTrue(2 <= elapsed <= 10, "Unexpected statement timeout duration.")
+
+        def test_ussd_client_read_timeout_uses_scoped_test_configuration(self):
+            # Keep a finite server timeout, but give the client a clear head start.
+            # No server shutdown, remote target or network modification is used.
+            with patch.dict(runtime.app.config, {"USSD_DB_READ_TIMEOUT": 1, "USSD_DB_STATEMENT_TIMEOUT": 5}):
+                with self.assertRaises(Error) as caught:
+                    with self.timeout_cursor() as cursor:
+                        started = time.monotonic()
+                        cursor.execute("SELECT SLEEP(6) AS bounded_wait")
+                        cursor.fetchall()
+                elapsed = time.monotonic() - started
+                self.assertTrue(isinstance(caught.exception, ReadTimeoutError)
+                                or caught.exception.errno in (2013, 2055), "Expected a client read failure.")
+                self.assertTrue(0.5 <= elapsed <= 10, "Unexpected socket timeout duration.")
 
         def test_registration_login_normalization_duplicate_and_linkage(self):
             data = self.payload()
