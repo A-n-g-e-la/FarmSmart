@@ -155,14 +155,25 @@ def build_suite(runtime):
                 for label, operation in operations:
                     try:
                         operation()
-                    except Exception:
+                    except Exception as error:
                         failed = True
                         close_failed |= label == "connection"
+                        self.record_timeout_diagnostic("cleanup_" + label, error)
                 # A socket timeout may already have disconnected the client.
                 # Still attempt all cleanup; preserve the original error only
                 # when connection.close() succeeds, never conceal a close failure.
                 if close_failed or (failed and not active_failure):
                     raise RuntimeError("Timeout scenario cleanup failed.") from None
+
+        def record_timeout_diagnostic(self, phase, error, elapsed=None):
+            # Keep no message, SQL, parameters or records. SafeResult validates
+            # these fields again before rendering them, including on failures.
+            if not hasattr(self, "timeout_diagnostics"):
+                self.timeout_diagnostics = []
+            self.timeout_diagnostics.append(dict(
+                phase=phase, errno=getattr(error, "errno", None),
+                sqlstate=getattr(error, "sqlstate", None),
+                exception=type(error).__name__, elapsed=elapsed))
 
         def test_ussd_timeout_session_values_and_repository_initialization(self):
             statement = ("SELECT @@SESSION.innodb_lock_wait_timeout AS lock_seconds, "
@@ -220,19 +231,33 @@ def build_suite(runtime):
 
         def test_ussd_lock_wait_timeout_rolls_back_synthetic_update(self):
             before = self.rows("SELECT last_name FROM users WHERE user_id=%s", (self.second["user_id"],))[0]
-            with self.timeout_cursor() as holder:
-                holder.execute("SELECT user_id FROM users WHERE user_id=%s FOR UPDATE", (self.first["user_id"],))
-                self.assertIsNotNone(holder.fetchone())
-                with self.assertRaises(Error) as caught:
+            # Isolate the lock timeout from competing finite statement/socket
+            # deadlines. Restore configuration even on setup or cleanup errors.
+            with patch.dict(runtime.app.config, {"USSD_DB_LOCK_WAIT_TIMEOUT": 2,
+                            "USSD_DB_STATEMENT_TIMEOUT": 5, "USSD_DB_READ_TIMEOUT": 10}):
+                with self.timeout_cursor() as holder:
+                    holder.execute("SELECT user_id FROM users WHERE user_id=%s FOR UPDATE", (self.first["user_id"],))
+                    self.assertIsNotNone(holder.fetchone())
                     with self.timeout_cursor() as waiter:
                         waiter.execute("UPDATE users SET last_name='Synthetic pending' WHERE user_id=%s", (self.second["user_id"],))
                         started = time.monotonic()
-                        waiter.execute("SELECT user_id FROM users WHERE user_id=%s FOR UPDATE", (self.first["user_id"],))
-                        waiter.fetchall()
-                elapsed = time.monotonic() - started
-                self.assertEqual(caught.exception.errno, 1205)
-                self.assertTrue(1 <= elapsed <= 10, "Unexpected lock timeout duration.")
+                        observed = None
+                        try:
+                            waiter.execute("SELECT user_id FROM users WHERE user_id=%s FOR UPDATE", (self.first["user_id"],))
+                            waiter.fetchall()
+                        except Exception as error:
+                            observed = error
+                            if not isinstance(error, Error):
+                                raise
+                        finally:
+                            elapsed = time.monotonic() - started
+                            self.record_timeout_diagnostic("lock_wait_select", observed, elapsed)
+            # Read back only after both transactions have rolled back and both
+            # connections have closed, even if an unexpected SQL errno occurred.
             self.assertEqual(self.rows("SELECT last_name FROM users WHERE user_id=%s", (self.second["user_id"],))[0], before)
+            self.assertIsNotNone(observed, "Expected a lock-wait error.")
+            self.assertEqual(observed.errno, 1205)
+            self.assertTrue(1 <= elapsed <= 10, "Unexpected lock timeout duration.")
 
         def test_ussd_statement_timeout_aborts_bounded_read_only_query(self):
             with self.assertRaises(Error) as caught:

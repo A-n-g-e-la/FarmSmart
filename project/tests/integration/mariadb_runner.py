@@ -5,6 +5,7 @@ import contextlib
 import dataclasses
 import ipaddress
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -310,6 +311,30 @@ class SafeResult(unittest.TextTestResult):
     def _exc_info_to_string(self, err, test):
         # Drivers/assertions may include SQL values or hashes. Never print tracebacks.
         return "Integration check failed; exception and record details suppressed.\n"
+
+    def stopTest(self, test):
+        # Never render arbitrary exception strings or traceback locals. Validate
+        # even test-supplied diagnostics rather than trusting their provenance.
+        for item in getattr(test, "timeout_diagnostics", []):
+            if not isinstance(item, dict) or type(item.get("phase")) is not str or item.get("phase") not in {
+                    "lock_wait_select", "cleanup_rollback", "cleanup_cursor", "cleanup_connection"}:
+                continue
+            errno = item.get("errno")
+            errno = errno if type(errno) is int and 0 <= errno <= 65535 else None
+            state = item.get("sqlstate")
+            state = state if type(state) is str and re.fullmatch(r"[A-Z0-9]{5}", state) else None
+            name = item.get("exception")
+            if type(name) is not str or name not in {"NoneType", "Error", "DatabaseError", "InternalError", "InterfaceError",
+                            "OperationalError", "ProgrammingError", "IntegrityError", "DataError",
+                            "NotSupportedError", "ReadTimeoutError", "WriteTimeoutError",
+                            "RuntimeError", "ValueError", "AssertionError"}:
+                name = "OtherError"
+            elapsed = item.get("elapsed")
+            elapsed = (round(elapsed, 6) if type(elapsed) in (int, float)
+                       and 0 <= elapsed <= 3600 and math.isfinite(elapsed) else None)
+            self.stream.writeln("Timeout diagnostic: " + json.dumps(dict(
+                phase=item["phase"], errno=errno, sqlstate=state, exception=name, elapsed=elapsed)))
+        super().stopTest(test)
 
 
 @contextlib.contextmanager

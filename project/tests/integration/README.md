@@ -149,7 +149,14 @@ Five additional cases cover:
    This is fault injection, not a real network outage. No intentional delay.
 3. Two separately owned connections contending for a synthetic user's row lock.
    The waiter must receive error 1205 after approximately two seconds; its prior
-   synthetic update must be rolled back. No thread sharing of connections.
+   synthetic update must be rolled back. This case alone uses lock-wait 2,
+   statement 5 and client read 10 seconds, configured before either connection
+   opens and restored even on failure. Only the contended SELECT/fetch is caught;
+   setup and preliminary-update errors fail independently. SQL-only monotonic
+   timing stops before rollback/close. Readback follows closure of both
+   connections, before checking errno, including for unexpected SQL error codes.
+   Error 1969 and socket failures do not substitute for 1205. No thread sharing
+   of connections and no application-default changes.
 4. Read-only `SELECT SLEEP(6)` under the default three-second statement limit;
    require MariaDB error 1969, rather than successful completion or a client error.
 5. Read-only `SELECT SLEEP(6)` with test-only read timeout 1 and statement timeout
@@ -167,12 +174,25 @@ bounded. Timing assertions allow scheduling tolerance up to ten seconds; they
 are observations after return, not hard process-kill deadlines. These tests do
 not simulate a hung kernel or guarantee an overall deadline.
 
+The runner retains only validated diagnostic fields for the lock SELECT and
+timeout-case cleanup failures: fixed phase identifier, numeric errno, five-character
+SQLSTATE, allowlisted exception class and SQL-only elapsed seconds (when available).
+These are printed even when a case fails; messages, SQL parameters, records and
+traceback locals remain suppressed. Cleanup diagnostics never turn an unexpected
+lock-case cleanup failure into a successful result.
+
+The first extended execution passed 24 of 25 cases, but the lock-wait case
+received an unretained error number other than 1205. All seven tables were empty
+after cleanup. The competing-timeout separation and diagnostics above have only
+offline validation until a separately approved isolated rerun; the original
+failure's exact error number cannot be recovered from that report.
+
 The existing tagged-fixture cleanup and seven-table empty-schema checks remain
 mandatory. Connection-establishment failures, write timeouts and uncertain commit
 acknowledgements remain mocked in offline tests. Do not stop MariaDB, alter
 networking, broaden privileges or touch global settings to induce failures.
-Actual MariaDB acceptance, timing, error codes and cleanup remain unverified
-until separately approved execution of this extended suite.
+The corrected lock-wait case's MariaDB timing, error code and rollback behavior
+remain unverified until separately approved isolated execution.
 
 ### Proposed read-only preflight (requires separate approval)
 

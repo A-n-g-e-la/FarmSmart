@@ -1,6 +1,7 @@
 """Offline guard checks. No test in this file opens a database connection."""
 import base64
 import copy
+from contextlib import contextmanager
 import importlib.util
 import io
 import json
@@ -401,6 +402,136 @@ with patch('mysql.connector.connect',side_effect=AssertionError('Database forbid
                 case.test_ussd_client_read_timeout_uses_scoped_test_configuration()
             self.assertEqual(runtime.app.config, original)
             raw.assert_not_called()
+
+    @contextmanager
+    def mocked_lock_case(self, error=None, failure=None):
+        """Run only the lock-case body against fake connections, never fixtures."""
+        from mysql.connector.errors import Error
+        scenario_spec = importlib.util.spec_from_file_location("lock_scenarios", DIRECTORY / "scenarios.py")
+        scenarios = importlib.util.module_from_spec(scenario_spec)
+        runtime = MagicMock()
+        runtime.app.config = dict(USSD_DB_LOCK_WAIT_TIMEOUT=2, USSD_DB_STATEMENT_TIMEOUT=3, USSD_DB_READ_TIMEOUT=5)
+        events, connections = [], []
+        def connect():
+            self.assertEqual(runtime.app.config, dict(USSD_DB_LOCK_WAIT_TIMEOUT=2,
+                             USSD_DB_STATEMENT_TIMEOUT=5, USSD_DB_READ_TIMEOUT=10))
+            label = "holder" if not connections else "waiter"
+            events.append(label + "_connect")
+            if label == "waiter" and failure == "setup":
+                raise Error("private setup", errno=1205)
+            connection = MagicMock()
+            cursor = connection.cursor.return_value
+            cursor.fetchone.return_value = {"user_id": 1}
+            def execute(sql, params=()):
+                if label == "waiter":
+                    events.append("update" if sql.startswith("UPDATE") else "select")
+                    if sql.startswith("UPDATE") and failure == "update":
+                        raise Error("private update", errno=1205)
+                    if sql.startswith("SELECT") and failure != "fetch" and error is not None:
+                        raise error
+            cursor.execute.side_effect = execute
+            if failure == "fetch":
+                cursor.fetchall.side_effect = error
+            def rollback():
+                events.append(label + "_rollback")
+                if label == "waiter" and failure == "cleanup":
+                    raise Error("private rollback", errno=2013)
+            connection.rollback.side_effect = rollback
+            cursor.close.side_effect = lambda: events.append(label + "_cursor_close")
+            connection.close.side_effect = lambda: events.append(label + "_close")
+            connections.append(connection)
+            return connection
+        ticks = iter((100.0, 102.25))
+        def clock():
+            events.append("clock")
+            return next(ticks)
+        def rows(*args):
+            events.append("readback" if connections else "before")
+            if connections:
+                self.assertIn("waiter_close", events)
+                self.assertIn("holder_close", events)
+            return [{"last_name": "Synthetic"}]
+        with patch("dotenv.load_dotenv", return_value=False), \
+                patch("mysql.connector.connect", side_effect=AssertionError("Database forbidden")) as raw, \
+                patch("app.db.get_ussd_db_connection", side_effect=connect):
+            scenario_spec.loader.exec_module(scenarios)
+            case_class = type(next(iter(scenarios.build_suite(runtime))))
+            case = case_class("test_ussd_lock_wait_timeout_rolls_back_synthetic_update")
+            case.first, case.second = {"user_id": 1}, {"user_id": 2}
+            with patch.object(case, "rows", side_effect=rows), patch.object(scenarios.time, "monotonic", side_effect=clock):
+                yield case, runtime, events, connections
+            raw.assert_not_called()
+
+    def test_lock_timeout_configuration_sql_timing_and_rollback_order(self):
+        from mysql.connector.errors import Error
+        for failure in (None, "fetch"):
+            with self.subTest(failure=failure), self.mocked_lock_case(
+                    Error("private SQL", errno=1205, sqlstate="HY000"), failure) as (case, runtime, events, connections):
+                case.test_ussd_lock_wait_timeout_rolls_back_synthetic_update()
+                self.assertEqual(len(connections), 2)
+                self.assertIsNot(connections[0], connections[1])
+                self.assertEqual(events, ["before", "holder_connect", "waiter_connect", "update", "clock",
+                    "select", "clock", "waiter_rollback", "waiter_cursor_close", "waiter_close",
+                    "holder_rollback", "holder_cursor_close", "holder_close", "readback"])
+                self.assertEqual(case.timeout_diagnostics, [dict(phase="lock_wait_select", errno=1205,
+                                 sqlstate="HY000", exception="Error", elapsed=2.25)])
+                self.assertEqual(runtime.app.config, dict(USSD_DB_LOCK_WAIT_TIMEOUT=2,
+                                 USSD_DB_STATEMENT_TIMEOUT=3, USSD_DB_READ_TIMEOUT=5))
+
+    def test_lock_timeout_rejects_other_errors_but_still_reads_back_after_cleanup(self):
+        from mysql.connector.errors import Error, ReadTimeoutError
+        for error in (Error("private statement", errno=1969), ReadTimeoutError("private socket", errno=2013), None):
+            with self.subTest(error=type(error).__name__), self.mocked_lock_case(error) as (case, runtime, events, connections):
+                with self.assertRaises(AssertionError):
+                    case.test_ussd_lock_wait_timeout_rolls_back_synthetic_update()
+                self.assertEqual(events[-1], "readback")
+                self.assertEqual(case.timeout_diagnostics[0]["errno"], getattr(error, "errno", None))
+                self.assertEqual(runtime.app.config["USSD_DB_STATEMENT_TIMEOUT"], 3)
+
+    def test_lock_timeout_setup_update_and_cleanup_failures_are_not_accepted(self):
+        from mysql.connector.errors import Error
+        for failure in ("setup", "update", "cleanup"):
+            with self.subTest(failure=failure), self.mocked_lock_case(
+                    Error("private SQL", errno=1205), failure) as (case, runtime, events, connections):
+                with self.assertRaises(RuntimeError if failure == "cleanup" else Error):
+                    case.test_ussd_lock_wait_timeout_rolls_back_synthetic_update()
+                self.assertNotIn("readback", events)
+                self.assertIn("holder_close", events)
+                if failure != "setup":
+                    self.assertIn("waiter_close", events)
+                if failure == "cleanup":
+                    self.assertEqual(case.timeout_diagnostics[-1]["phase"], "cleanup_rollback")
+                    self.assertEqual(case.timeout_diagnostics[-1]["errno"], 2013)
+                self.assertEqual(runtime.app.config["USSD_DB_STATEMENT_TIMEOUT"], 3)
+
+    def test_unexpected_non_driver_lock_error_is_not_swallowed(self):
+        with self.mocked_lock_case(ValueError("private operation")) as (case, runtime, events, connections):
+            with self.assertRaises(ValueError):
+                case.test_ussd_lock_wait_timeout_rolls_back_synthetic_update()
+            self.assertIn("waiter_close", events)
+            self.assertIn("holder_close", events)
+            self.assertEqual(case.timeout_diagnostics[0]["exception"], "ValueError")
+            self.assertEqual(runtime.app.config["USSD_DB_READ_TIMEOUT"], 5)
+
+    def test_timeout_diagnostics_reporting_validates_fields_without_printing_secrets(self):
+        class Failure(unittest.TestCase):
+            def runTest(inner):
+                inner.timeout_diagnostics = [
+                    dict(phase="lock_wait_select", errno=1969, sqlstate="70100", exception="DatabaseError", elapsed=3.125),
+                    dict(phase="cleanup_rollback", errno="private", sqlstate="private", exception="private", elapsed=float("nan")),
+                    dict(phase="private", errno=1205),
+                ]
+                raise ValueError("private credentials PIN SQL records")
+        output = io.StringIO()
+        result = unittest.TextTestRunner(stream=output, resultclass=runner.SafeResult).run(Failure())
+        self.assertFalse(result.wasSuccessful())
+        text = output.getvalue()
+        self.assertIn('"errno": 1969', text)
+        self.assertIn('"sqlstate": "70100"', text)
+        self.assertIn('"elapsed": 3.125', text)
+        self.assertIn('"exception": "OtherError"', text)
+        self.assertNotIn("private", text)
+        self.assertNotIn("Traceback", text)
 
     def schema_fixture(self):
         """Complete fake metadata; individual regressions mutate real requirements."""
