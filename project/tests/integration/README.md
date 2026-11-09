@@ -56,6 +56,21 @@ Only after provisioning and test-execution approval, from `project`:
 .\.venv\Scripts\python.exe -B tests\integration\mariadb_runner.py
 ```
 
+With separate execution approval, select exactly one scenario by its exact
+method name:
+
+```powershell
+.\.venv\Scripts\python.exe -B tests\integration\mariadb_runner.py --scenario test_ussd_lock_wait_timeout_rolls_back_synthetic_update
+```
+
+No selector still runs all 25 cases. Empty, unknown, malformed, repeated or
+multiple selectors are refused before entering the database runtime or opening
+any connection. Allowed names are read statically from the existing suite;
+module paths, expressions and wildcards are never imported or evaluated.
+Single-case execution retains the same opt-in, guarded runtime, pre/post schema
+and seven-table emptiness checks, unittest fixture setup and cleanup. This option
+does not authorize execution or change any connection restrictions.
+
 Use a fresh Python process. The runner blocks dotenv before application imports,
 installs a connector guard first, and overrides Flask configuration explicitly.
 Flask, metadata-HMAC and PIN-pepper keys are independent ephemeral synthetic keys;

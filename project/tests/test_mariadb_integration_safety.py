@@ -1,7 +1,7 @@
 """Offline guard checks. No test in this file opens a database connection."""
 import base64
 import copy
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 import importlib.util
 import io
 import json
@@ -254,7 +254,7 @@ class MariaDbIntegrationSafetyTests(unittest.TestCase):
 
     def test_disabled_runner_exits_without_connecting_or_printing_secrets(self):
         with patch.dict("os.environ", {}, clear=True), patch("mysql.connector.connect") as connect, patch("sys.stderr", new_callable=io.StringIO) as output:
-            self.assertEqual(runner.main(), 2)
+            self.assertEqual(runner.main([]), 2)
             connect.assert_not_called()
             self.assertNotIn(self.settings.password, output.getvalue())
 
@@ -318,6 +318,108 @@ with patch('mysql.connector.connect',side_effect=AssertionError('Database forbid
     def test_integration_directory_is_excluded_from_default_test_discovery(self):
         self.assertFalse((DIRECTORY / "__init__.py").exists())
         self.assertEqual(list(DIRECTORY.glob("test*.py")), [])
+
+    def test_invalid_scenario_selectors_are_rejected_before_runtime_or_connection(self):
+        target = "test_ussd_lock_wait_timeout_rolls_back_synthetic_update"
+        invalid = [["--scenario"], ["--scenario", ""], ["--scenario", "unknown"],
+                   ["--scenario", "test_unknown"], ["--scenario", "test_*"],
+                   ["--scenario", "scenarios." + target], ["--scenario", target + "()"],
+                   ["--scenario", " " + target], ["--scenario", target + "\n"],
+                   [target], ["--scenario=" + target], ["--other", target],
+                   ["--scenario", target, target], ["--scenario", target, "--scenario", target]]
+        with patch("mysql.connector.connect") as connect, patch.object(runner, "isolated_runtime") as runtime, \
+                patch.object(runner.Settings, "from_environment") as settings, \
+                patch("sys.stderr", new_callable=io.StringIO) as output:
+            for arguments in invalid:
+                with self.subTest(arguments=arguments):
+                    self.assertEqual(runner.main(arguments), 2)
+            settings.assert_not_called()
+            runtime.assert_not_called()
+            connect.assert_not_called()
+            self.assertNotIn(target, output.getvalue())
+
+    def mocked_selector_execution(self, arguments, failure=None, cli=False):
+        """Exercise main and real unittest fixture lifecycle without real SQL."""
+        scenario_spec = importlib.util.spec_from_file_location("selector_scenarios", DIRECTORY / "scenarios.py")
+        scenarios = importlib.util.module_from_spec(scenario_spec)
+        events = []
+        runtime = MagicMock()
+        runtime.guard.failed = False
+        runtime.assert_empty_schema = MagicMock(side_effect=lambda: events.append("schema"))
+        runtime.app.app_context.return_value.pop.side_effect = lambda: events.append("context_cleanup")
+        @contextmanager
+        def guarded(settings):
+            self.assertEqual(settings, self.settings)
+            events.append("runtime_enter")
+            try:
+                yield runtime
+            finally:
+                events.append("runtime_exit")
+        with ExitStack() as stack:
+            raw = stack.enter_context(patch("mysql.connector.connect", side_effect=AssertionError("Database forbidden")))
+            stack.enter_context(patch("dotenv.load_dotenv", return_value=False))
+            scenario_spec.loader.exec_module(scenarios)
+            suite = scenarios.build_suite(runtime)
+            case_class = type(next(iter(suite)))
+            self.assertEqual(suite.countTestCases(), 25)
+            stack.enter_context(patch.object(case_class, "setUpClass", return_value=None))
+            def farmer(case):
+                events.append("farmer_setup")
+                if failure == "setup":
+                    raise RuntimeError("private setup failure")
+                return {}
+            stack.enter_context(patch.object(case_class, "new_farmer", farmer))
+            stack.enter_context(patch.object(case_class, "login", return_value=object()))
+            def cleanup(case):
+                events.append("fixture_cleanup")
+                if failure == "cleanup":
+                    raise RuntimeError("private cleanup failure")
+            stack.enter_context(patch.object(case_class, "cleanup", cleanup))
+            for case in suite:
+                name = case._testMethodName
+                # Every approved AST name must match the actual collected suite.
+                self.assertEqual(runner.scenario_selector(["--scenario", name]), name)
+                def body(case, name=name):
+                    events.append(name)
+                    if failure == "body":
+                        raise RuntimeError("private body failure")
+                stack.enter_context(patch.object(case_class, name, body))
+            stack.enter_context(patch.object(scenarios, "build_suite", return_value=suite))
+            stack.enter_context(patch.dict(sys.modules, {"scenarios": scenarios}))
+            stack.enter_context(patch.dict("os.environ", environment(), clear=True))
+            stack.enter_context(patch.object(runner, "isolated_runtime", guarded))
+            stack.enter_context(patch("sys.argv", ["mariadb_runner.py", *arguments]))
+            output = stack.enter_context(patch("sys.stderr", new_callable=io.StringIO))
+            result = runner.main() if cli else runner.main(arguments)
+            self.assertNotIn("private", output.getvalue())
+            raw.assert_not_called()
+        return result, events
+
+    def test_no_selector_runs_all_25_scenarios_with_guarded_lifecycle(self):
+        result, events = self.mocked_selector_execution([])
+        self.assertEqual(result, 0)
+        self.assertEqual(sum(event.startswith("test_") for event in events), 25)
+        self.assertEqual(events.count("fixture_cleanup"), 25)
+        self.assertEqual(events.count("context_cleanup"), 25)
+        self.assertEqual(events.count("schema"), 2)
+        self.assertEqual(events[:2], ["runtime_enter", "schema"])
+        self.assertEqual(events[-2:], ["schema", "runtime_exit"])
+
+    def test_exact_selector_runs_only_target_with_normal_fixture_cleanup(self):
+        target = "test_ussd_lock_wait_timeout_rolls_back_synthetic_update"
+        result, events = self.mocked_selector_execution(["--scenario", target], cli=True)
+        self.assertEqual(result, 0)
+        self.assertEqual(events, ["runtime_enter", "schema", "farmer_setup", "farmer_setup",
+                                 target, "fixture_cleanup", "context_cleanup", "schema", "runtime_exit"])
+
+    def test_selected_setup_body_and_cleanup_failures_still_fail_and_check_final_schema(self):
+        target = "test_ussd_lock_wait_timeout_rolls_back_synthetic_update"
+        for failure in ("setup", "body", "cleanup"):
+            with self.subTest(failure=failure):
+                result, events = self.mocked_selector_execution(["--scenario", target], failure)
+                self.assertEqual(result, 1)
+                self.assertEqual(events.count("fixture_cleanup"), 1)
+                self.assertEqual(events[-3:], ["context_cleanup", "schema", "runtime_exit"])
 
     def test_scenario_import_and_collection_do_not_connect_or_run_fixtures(self):
         scenario_spec = importlib.util.spec_from_file_location("farmadvis_mariadb_scenarios", DIRECTORY / "scenarios.py")

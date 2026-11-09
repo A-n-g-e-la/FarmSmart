@@ -359,15 +359,41 @@ def isolated_runtime(settings):
         yield Runtime(settings, mysql.connector.connect, guard, app)
 
 
-def main():
+def scenario_selector(arguments):
+    """Validate exact suite method names without importing application code."""
+    if not arguments:
+        return None
+    if (len(arguments) != 2 or arguments[0] != "--scenario"
+            or not isinstance(arguments[1], str)
+            or not re.fullmatch(r"test_[a-z0-9_]+", arguments[1])):
+        raise IntegrationSafetyError("Invalid integration scenario selection.")
+    # Static inspection avoids build_suite's application imports before the
+    # fresh-process runtime has installed its connection/environment guards.
+    source = ast.parse(Path(__file__).with_name("scenarios.py").read_text(encoding="utf-8"))
+    factory = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == "build_suite")
+    case = next(node for node in factory.body if isinstance(node, ast.ClassDef) and node.name == "MariaDbFeatureTests")
+    names = [node.name for node in case.body if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")]
+    if len(names) != 25 or len(set(names)) != 25 or arguments[1] not in names:
+        raise IntegrationSafetyError("Invalid integration scenario selection.")
+    return arguments[1]
+
+
+def main(arguments=None):
     try:
+        selected = scenario_selector(sys.argv[1:] if arguments is None else arguments)
         settings = Settings.from_environment(os.environ)
         project = Path(__file__).resolve().parents[2]
         sys.path.insert(0, str(project))
         with isolated_runtime(settings) as runtime:
             runtime.assert_empty_schema()
             from scenarios import build_suite
-            result = unittest.TextTestRunner(verbosity=2, resultclass=SafeResult).run(build_suite(runtime))
+            suite = build_suite(runtime)
+            if selected is not None:
+                cases = [case for case in suite if case._testMethodName == selected]
+                if len(cases) != 1:
+                    raise IntegrationSafetyError("Selected integration scenario is unavailable.")
+                suite = unittest.TestSuite(cases)
+            result = unittest.TextTestRunner(verbosity=2, resultclass=SafeResult).run(suite)
             runtime.assert_empty_schema()
             if runtime.guard.failed or not result.wasSuccessful():
                 return 1
