@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FarmAdvis supports maize farmers and agricultural officers in Uasin Gishu, Kenya with farm records and access to assigned farmer information.">
+  <title>FarmAdvis | Maize Farming in Uasin Gishu</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/registration.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+</head>
+<body class="home-page">
+  <a class="home-skip" href="#main-content">Skip to content</a>
+  <header class="home-header home-container">
+    <a class="brand" href="{{ url_for('public.home') }}" aria-label="FarmAdvis home"><span class="brand-mark" aria-hidden="true">FA</span>FarmAdvis</a>
+    <nav class="home-nav" aria-label="Main navigation">
+      <a href="#features">Features</a>
+      <a href="#about">About</a>
+      <a class="home-nav-cta" href="#get-started">Get started <span aria-hidden="true">&rarr;</span></a>
+    </nav>
+  </header>
+
+  <main id="main-content" tabindex="-1">
+    <section class="home-hero home-container" aria-labelledby="hero-title">
+      <div class="home-hero-copy">
+        <p class="home-eyebrow">Rooted in Uasin Gishu, Kenya</p>
+        <h1 id="hero-title">Smarter Farming.<br><span>Better Decisions.</span></h1>
+        <p class="home-hero-description">FarmAdvis helps maize farmers manage their farm information and supports agricultural officers in providing informed agricultural guidance.</p>
+        <a class="home-button home-button-light" href="#get-started">Find your starting point <span aria-hidden="true">&rarr;</span></a>
+        <p class="home-hero-note">For maize farmers and agricultural officers.</p>
+      </div>
+      <div class="home-hero-aside">
+        <div class="home-field-pattern" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <p class="home-eyebrow">Farm records. Shared understanding.</p>
+        <p class="home-aside-title">A clearer picture<br>of the farm.</p>
+        <p>Organized farm information is a starting point for informed conversations.</p>
+      </div>
+    </section>
+
+    <section id="get-started" class="home-section home-container" aria-labelledby="roles-title">
+      <div class="home-section-heading">
+        <p class="home-eyebrow">Get started</p>
+        <h2 id="roles-title">Your role. Your workspace.</h2>
+        <p>Choose how you use FarmAdvis.</p>
+      </div>
+      <div class="home-role-grid">
+        <article class="home-role-card" aria-labelledby="farmer-title">
+          <span class="home-role-label">For farmers</span>
+          <h3 id="farmer-title">Keep your farm information together.</h3>
+          <p>Register a farmer account, sign in, and manage your registered farm plots, including acreage, location, and farming details.</p>
+          <div class="home-card-links">
+            <a class="home-button home-button-primary" href="{{ url_for('farmer.login_page') }}">Farmer login <span aria-hidden="true">&rarr;</span></a>
+            <a class="home-text-link" href="{{ url_for('farmer.registration_form') }}">Register as a farmer</a>
+          </div>
+        </article>
+        <article class="home-role-card home-officer-card" aria-labelledby="officer-title">
+          <span class="home-role-label">For agricultural officers</span>
+          <h3 id="officer-title">Understand the farms assigned to you.</h3>
+          <p>Approved agricultural officers can view their assigned farmers and those farmers&rsquo; registered farm plots through a read-only workspace.</p>
+          <div class="home-card-links">
+            <a class="home-button home-button-primary" href="{{ url_for('officer.login_page') }}">Officer login <span aria-hidden="true">&rarr;</span></a>
+            <a class="home-text-link" href="{{ url_for('officer.registration_page') }}">Register as an officer</a>
+          </div>
+          <p class="home-approval-note">Officer registration requires administrator approval before account access is enabled.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="features" class="home-features" aria-labelledby="features-title">
+      <div class="home-container home-section">
+        <div class="home-section-heading">
+          <p class="home-eyebrow">The platform</p>
+          <h2 id="features-title">Useful foundations. A clear direction.</h2>
+          <p>See what you can use today and what is planned for the future.</p>
+        </div>
+        <div class="home-feature-grid">
+          <div class="home-feature-group" aria-labelledby="available-title">
+            <p class="home-availability">Available now</p>
+            <h3 id="available-title">Currently available</h3>
+            <ul class="home-feature-list">
+              <li><strong>Farmer accounts</strong><span>Farmer account registration and login.</span></li>
+              <li><strong>Farm-plot records</strong><span>Farm-plot registration and management.</span></li>
+              <li><strong>Officer accounts</strong><span>Agricultural officer registration and login after approval.</span></li>
+              <li><strong>Assigned-farmer viewing</strong><span>Read-only access to assigned farmers and farm plots.</span></li>
+            </ul>
+          </div>
+          <div class="home-feature-group home-planned-group" aria-labelledby="planned-title">
+            <p class="home-availability home-planned-label">Planned &middot; Not yet available</p>
+            <h3 id="planned-title">Looking ahead</h3>
+            <p class="home-planned-intro">These features are planned and are not operational yet.</p>
+            <ul class="home-feature-list">
+              <li><strong>Maize yield prediction</strong><span>Planned</span></li>
+              <li><strong>Fertilizer recommendations</strong><span>Planned</span></li>
+              <li><strong>Return on investment estimates</strong><span>Planned</span></li>
+              <li><strong>USSD access for farmers</strong><span>Planned</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="about" class="home-section home-container home-about" aria-labelledby="about-title">
+      <div class="home-section-heading">
+        <p class="home-eyebrow">About FarmAdvis</p>
+        <h2 id="about-title">Local focus.<br>Informed decisions.</h2>
+      </div>
+      <div class="home-about-copy">
+        <p>FarmAdvis is a maize farming advisory platform focused on Uasin Gishu, Kenya. Its goal is to support informed agricultural decision-making by helping farmers organize their farm information and giving approved officers a view of their assigned farmers&rsquo; records.</p>
+        <p>The current platform starts with accounts, farm-plot management, and assigned-farmer viewing. Further advisory tools are planned as the platform develops.</p>
+        <a class="home-text-link" href="#get-started">Explore your workspace <span aria-hidden="true">&rarr;</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="home-footer">
+    <div class="home-container home-footer-inner">
+      <div><p class="home-footer-brand">FarmAdvis</p><p>Uasin Gishu, Kenya</p></div>
+      <nav class="home-nav" aria-label="Footer navigation"><a href="#features">Features</a><a href="#about">About</a><a href="#get-started">Get started</a></nav>
+      <p class="home-copyright">&copy; {{ current_year }} FarmAdvis. All rights reserved.</p>
+    </div>
+  </footer>
+</body>
+</html>

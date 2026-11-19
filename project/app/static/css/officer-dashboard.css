@@ -1,0 +1,28 @@
+.officer-shell { max-width: 1200px; margin: auto; padding: 12px 20px 40px; display: grid; gap: 24px; }
+.officer-shell h1 { font-size: clamp(1.8rem, 4vw, 2.8rem); }
+.officer-shell h2 { font-size: 1.25rem; }
+.officer-shell h3 { margin: 0 0 16px; font-size: 1.05rem; }
+.officer-shell p, .officer-shell dd, .officer-shell button { overflow-wrap: anywhere; }
+.officer-summary dl { display: grid; gap: 16px; margin: 0 0 24px; }
+.officer-summary dl > div { padding: 20px 24px; border: 1px solid #dce4d9; border-radius: 16px; background: white; }
+.officer-summary dt { color: var(--muted); }
+.officer-summary dd { margin: 8px 0 0; font-size: 1.8rem; font-weight: 750; }
+.officer-columns { display: grid; gap: 24px; }
+.officer-columns > section { min-width: 0; }
+.officer-columns .error-summary { color: var(--red); }
+.officer-button { min-height: 44px; padding: 10px 16px; border: 1px solid var(--green); border-radius: 8px; background: white; color: var(--green); font: inherit; font-weight: 650; cursor: pointer; }
+.officer-button:disabled { opacity: .65; cursor: wait; }
+.officer-farmers { display: grid; gap: 12px; padding: 0; margin: 0; list-style: none; }
+.officer-farmer { display: grid; gap: 6px; width: 100%; text-align: left; border-color: #99aca0; }
+.officer-farmer:hover { background: #f5f7f2; }
+.officer-farmer[aria-pressed="true"] { border: 2px solid var(--green); background: #e5eedb; }
+.officer-farmer .farmer-contact, .officer-farmer .farmer-count { color: var(--muted); font-size: .85rem; font-weight: 400; }
+.officer-farmer .farmer-selected { font-size: .8rem; font-weight: 750; }
+.officer-plots { display: grid; gap: 16px; margin-top: 16px; }
+.officer-plot { padding: 18px; border: 1px solid #dce4d9; border-radius: 12px; background: #fafbf8; min-width: 0; }
+.officer-plot dl { margin: 0; }
+.officer-plot dl > div { display: grid; gap: 4px; padding: 8px 0; }
+.officer-plot dt { color: var(--muted); font-size: .85rem; }
+.officer-plot dd { margin: 0; }
+@media (min-width: 540px) { .officer-summary dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 850px) { .officer-columns { grid-template-columns: minmax(260px, .8fr) minmax(0, 1.2fr); align-items: start; } }

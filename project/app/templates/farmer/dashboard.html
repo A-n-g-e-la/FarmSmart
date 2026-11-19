@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Farmer Dashboard | FarmAdvis</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/registration.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+  <script src="{{ url_for('static', filename='javascript/dashboard.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='javascript/farm-plots.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='javascript/agricultural-plans.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/plans.css') }}">
+  <script id="plot-options" type="application/json">{{ plot_options | tojson }}</script>
+</head>
+<body class="dashboard-page">
+  <a class="skip-link" href="#main-content">Skip to dashboard</a>
+  <header class="site-header dashboard-header">
+    <a class="brand" href="#overview" aria-label="FarmAdvis dashboard"><span class="brand-mark" aria-hidden="true">FA</span>FarmAdvis</a>
+    <span class="county">Supporting maize farmers<br>Uasin Gishu, Kenya</span>
+    <div class="account-controls">
+      {# Keep the session-bound token in the page, never in a request URL. #}
+      <input type="hidden" id="logout-csrf-token" value="{{ logout_csrf_token }}">
+      <button type="button" id="logout-button" class="submit-button logout-button" disabled>Logout</button>
+    </div>
+  </header>
+
+  <div class="dashboard-shell">
+    <nav class="dashboard-nav" aria-label="Dashboard sections">
+      <p class="nav-label">Your workspace</p>
+      <a href="#overview">Overview</a>
+      <a href="#farm-plots">Farm plots</a>
+      <a href="#plans">Seasonal plans &amp; comparisons</a>
+      <p class="nav-note">A clearer view of your next maize season.</p>
+    </nav>
+
+    <main class="dashboard-main" id="main-content" tabindex="-1">
+      <div class="session-messages">
+        <p id="logout-error" class="notice error-summary" role="alert" tabindex="-1" hidden></p>
+        <p id="logout-status" role="status" aria-live="polite"></p>
+        <noscript><p class="notice">Enable JavaScript to securely log out of your account. You can still browse the dashboard sections below.</p></noscript>
+      </div>
+
+      <section class="welcome-panel" id="overview" aria-labelledby="dashboard-title" tabindex="-1">
+        <p class="eyebrow">Farmer dashboard</p>
+        {# Jinja escapes an optional name; current authenticated identities contain IDs only. #}
+        <h1 id="dashboard-title">{% if farmer_name %}Welcome, {{ farmer_name }}.{% else %}Welcome, farmer.{% endif %}</h1>
+        <p>Your farm, your plans, your next season.</p>
+        <p class="welcome-note">Register your farm plots and keep their details together. Select a plot to create a seasonal plan and compare fertilizer options.</p>
+        <a class="section-link" href="#quick-actions">Explore your dashboard <span aria-hidden="true">&darr;</span></a>
+      </section>
+
+      <section class="quick-actions" id="quick-actions" aria-labelledby="actions-title" tabindex="-1">
+        <div>
+          <p class="eyebrow">Find your way</p>
+          <h2 id="actions-title">Quick actions</h2>
+          <p>Jump to a section to see what is available.</p>
+        </div>
+        <div class="action-links">
+          <a href="#farm-plots">View plot summary <span aria-hidden="true">&rarr;</span></a>
+          <a id="quick-add-plot" href="#add-plot">Add Farm Plot <span aria-hidden="true">&rarr;</span></a>
+        </div>
+        <p class="availability-note">Compare every available option, then choose your preferred plan.</p>
+      </section>
+
+      <div class="dashboard-grid">
+        <section class="dashboard-card plots-card" id="farm-plots" aria-labelledby="plots-title" tabindex="-1">
+          <div class="card-heading"><span class="card-kicker">Your land</span></div>
+          <h2 id="plots-title">Farm plots</h2>
+          <p>Current prototype: Uasin Gishu County. Ward selection records plot location; predictions have not been independently validated in every ward.</p>
+          <p id="plots-status" role="status" aria-live="polite">Enable JavaScript to load your farm plots.</p>
+          <p id="plots-error" class="notice error-summary" role="alert" hidden></p>
+          <p id="plots-empty" hidden>No farm plots registered yet. Choose + Add Farm Plot to register your first plot.</p>
+          <dl class="summary-list">
+            <div><dt>Total plots</dt><dd id="plot-count">Not available yet</dd></div>
+            <div><dt>Total area</dt><dd id="plot-total-area">Not available yet</dd></div>
+          </dl>
+          <ul id="plot-list" class="plot-list" aria-label="Registered farm plots"></ul>
+          <div class="plot-selection" aria-labelledby="selected-plot-title">
+            <h3 id="selected-plot-title">Selected plot details</h3>
+            <p id="plot-selection-status" role="status" aria-live="polite">Select a farm plot to view its details.</p>
+            <dl id="selected-plot-details" class="summary-list" hidden></dl>
+            <button id="edit-plot" type="button" class="plot-secondary-button" aria-expanded="false" aria-controls="edit-plot-panel" hidden disabled>Edit Plot</button>
+            <button id="delete-plot" type="button" class="plot-secondary-button" hidden>Delete selected plot</button>
+            <p id="edit-plot-status" class="plot-confirmation" role="status" aria-live="polite"></p>
+            <p id="edit-plot-error" class="notice error-summary" role="alert" tabindex="-1" hidden></p>
+            <div id="edit-plot-panel" class="plot-registration" hidden>
+              <h4 id="edit-plot-title">Edit selected plot</h4>
+              <p>Fields marked (required) must be completed. Only changed fields are saved.</p>
+              <form id="edit-plot-form" aria-labelledby="edit-plot-title" novalidate>
+                <fieldset id="edit-plot-fields" disabled>
+                  <legend class="visually-hidden">Edit farm plot details</legend>
+                  <div class="plot-fields-grid">
+                    <div class="field">
+                      <label for="edit-plot_name">Plot Name (required)</label>
+                      <input id="edit-plot_name" name="plot_name" type="text" maxlength="100" required aria-describedby="edit-plot_name-error">
+                      <p id="edit-plot_name-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-plot-area-unit">Area unit</label><select id="edit-plot-area-unit"><option value="ha">Hectares</option><option value="acres">Acres</option></select>
+                      <label for="edit-area_acres">Plot area (required)</label>
+                      <input id="edit-area_acres" name="area_acres" type="text" inputmode="decimal" maxlength="32" required aria-describedby="edit-area-hint edit-area_acres-error">
+                      <p id="edit-area-hint" class="hint">Choose a unit. Existing stored precision is preserved when unchanged. Area changes clear saved scenario selections.</p>
+                      <p id="edit-area_acres-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-county">County</label>
+                      <input id="edit-county" name="county" type="text" readonly placeholder="Not recorded">
+                      <p id="edit-county-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-sub_county">Sub-county</label>
+                      <select id="edit-sub_county" name="sub_county" aria-describedby="edit-sub_county-error"></select>
+                      <p id="edit-sub_county-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-ward">Ward</label>
+                      <select id="edit-ward" name="ward" aria-describedby="edit-ward-error"></select>
+                      <p id="edit-ward-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-location">Village / landmark or previous location details (optional)</label>
+                      <input id="edit-location" name="location" type="text" maxlength="150" aria-describedby="edit-location-error">
+                      <p id="edit-location-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-soil_type">Predominant soil texture (optional)</label>
+                      <select id="edit-soil_type" name="soil_type" aria-describedby="edit-soil_type-error"></select>
+                      <p id="edit-soil_type-error" class="field-error" hidden></p>
+                    </div>
+                    <div class="field">
+                      <label for="edit-farming_type">Water supply method (optional)</label>
+                      <select id="edit-farming_type" name="farming_type" aria-describedby="edit-farming_type-error"></select>
+                      <p id="edit-farming_type-error" class="field-error" hidden></p>
+                    </div>
+                  </div>
+                  <div class="plot-card-actions">
+                    <button id="save-plot-changes" type="submit" class="submit-button plot-toggle-button">Save Changes</button>
+                    <button id="cancel-plot-edit" type="button" class="plot-secondary-button">Cancel</button>
+                  </div>
+                </fieldset>
+              </form>
+            </div>
+          </div>
+          <div class="plot-card-actions">
+            <button type="button" id="toggle-add-plot" class="submit-button plot-toggle-button" aria-expanded="false" aria-controls="add-plot" disabled>+ Add Farm Plot</button>
+            <button type="button" id="refresh-plots" class="plot-secondary-button" disabled>Refresh plots</button>
+          </div>
+          <p id="plot-session" class="notice" hidden>Your session could not be verified. <a href="{{ url_for('farmer.login_page') }}">Log in again</a> to continue.</p>
+          <p id="plot-form-status" class="plot-confirmation" role="status" aria-live="polite"></p>
+          <noscript><p>Enable JavaScript to open the form and register farm plots securely.</p></noscript>
+
+          <div id="add-plot" class="plot-registration" tabindex="-1" hidden>
+            <h3 id="add-plot-title">Add Farm Plot</h3>
+            <p>Fields marked (required) must be completed. Area is measured in acres.</p>
+            <p id="plot-form-error" class="notice error-summary" role="alert" tabindex="-1" hidden></p>
+            <form id="plot-form" method="post" action="{{ url_for('farmer.create_plot') }}" aria-labelledby="add-plot-title" novalidate>
+              <fieldset id="plot-fields" disabled>
+                <legend class="visually-hidden">New farm plot details</legend>
+                <div class="plot-fields-grid">
+                  <div class="field">
+                    <label for="plot_name">Plot Name (required)</label>
+                    <input id="plot_name" name="plot_name" type="text" maxlength="100" required aria-describedby="plot_name-error">
+                    <p id="plot_name-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="plot-area-unit">Area unit</label><select id="plot-area-unit"><option value="acres">Acres</option><option value="ha">Hectares</option></select>
+                    <label for="area_acres">Plot area (required)</label>
+                    <input id="area_acres" name="area_acres" type="text" inputmode="decimal" maxlength="32" required aria-describedby="area_acres-hint area_acres-error">
+                    <p id="area_acres-hint" class="hint">Acres: up to 3 decimal places. Hectares: up to 14. The server validates area limits.</p>
+                    <p id="area_acres-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="county">County</label>
+                    <input id="county" name="county" type="text" value="Uasin Gishu" readonly aria-describedby="county-error">
+                    <p id="county-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="sub_county">Sub-county (required)</label>
+                    <select id="sub_county" name="sub_county" required aria-describedby="sub_county-error"></select>
+                    <p id="sub_county-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="ward">Ward (required)</label>
+                    <select id="ward" name="ward" required aria-describedby="ward-error"></select>
+                    <p id="ward-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="plot_location">Village / landmark (optional)</label>
+                    <input id="plot_location" name="location" type="text" maxlength="150" aria-describedby="location-error">
+                    <p id="location-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="soil_type">Predominant soil texture (optional)</label>
+                    <select id="soil_type" name="soil_type" aria-describedby="soil_type-error"></select>
+                    <p id="soil_type-error" class="field-error" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="farming_type">Water supply method (optional)</label>
+                    <select id="farming_type" name="farming_type" aria-describedby="farming_type-error"></select>
+                    <p id="farming_type-error" class="field-error" hidden></p>
+                  </div>
+                </div>
+                <button id="save-plot" type="submit" class="submit-button">Register farm plot</button>
+              </fieldset>
+            </form>
+          </div>
+        </section>
+
+        {% include "farmer/plan_editor.html" %}
+      </div>
+    </main>
+  </div>
+  <footer class="site-footer">FarmAdvis &middot; Supporting maize farmers in Uasin Gishu</footer>
+</body>
+</html>

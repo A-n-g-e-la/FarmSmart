@@ -1,0 +1,52 @@
+<section class="dashboard-card plans-card" id="plans" aria-labelledby="plans-title">
+  <h2 id="plans-title">Seasonal agricultural plans</h2>
+  <p id="plan-plot-status">Select one of your plots above to manage its plans.</p>
+  <p id="plan-message" role="status" aria-live="polite"></p>
+  <p id="plan-error" class="notice error-summary" role="alert" hidden></p>
+  <div id="plan-workspace" hidden>
+    <label for="saved-plan">Saved plans for this plot</label>
+    <select id="saved-plan"><option value="">New seasonal plan</option></select>
+    <p id="saved-selection"></p>
+    <form id="agricultural-plan-form">
+      <fieldset id="plan-fields">
+        <legend id="plan-editor-title">New seasonal plan</legend>
+        <div class="plan-grid">
+          <label>Planting year <input name="planting_year" type="number" min="1000" max="9999" required></label>
+          <label>Season <select name="planting_season"><option value="long_rains">Long rains</option><option value="short_rains">Short rains</option></select></label>
+          <label>Maize variety <select name="variety"><option value="623A">623A</option><option value="HAC">HAC</option></select></label>
+          <label>Expected maize price (KES/kg) <input name="farmgate_price_kes_kg" type="number" min="0" step="any" required></label>
+          <label>Seed cost (KES, whole plot) <input name="seed_cost_kes" type="number" min="0" step="any" required></label>
+          <label>Labour cost (KES, whole plot) <input name="labour_cost_kes" type="number" min="0" step="any" required></label>
+          <label>Other cost (KES, whole plot) <input name="other_cost_kes" type="number" min="0" step="any" required></label>
+        </div>
+        <h3>Fertilizer products</h3>
+        <p>Enter quantities for the whole plot. Leave the product list empty for a zero-fertilizer plan. Optional grades use N–P₂O₅–K₂O percentages.</p>
+        <datalist id="fertilizer-products"><option value="UREA"><option value="DAP"><option value="TSP"><option value="MOP"><option value="NPK17"></datalist>
+        <div id="plan-products"></div>
+        <button type="button" id="add-plan-product" class="plot-secondary-button">Add product</button>
+        <button type="submit" class="submit-button">Save seasonal plan</button>
+        <button type="button" id="delete-plan" class="plot-secondary-button" hidden>Delete seasonal plan</button>
+      </fieldset>
+    </form>
+    <button type="button" id="compare-plan" class="submit-button" hidden>Compare fertilizer options</button>
+    <p>Comparisons are exploratory estimates, not guaranteed harvests. All available options are shown; you choose whether to save one. Editing the plan or its plot area clears its previous choice.</p>
+    <div id="plan-comparisons" aria-live="polite"></div>
+    <button type="button" id="save-plan-choice" class="submit-button" hidden>Save my selected option</button>
+  </div>
+</section>
+<template id="plan-product-template">
+  <fieldset class="plan-product">
+    <legend>Fertilizer product</legend>
+    <div class="plan-grid">
+      <label>Product name <input name="product" list="fertilizer-products" maxlength="100" required></label>
+      <label>Quantity (kg, whole plot) <input name="quantity_kg" type="number" min="0" step="any" required></label>
+      <label>N % (optional) <input name="N" type="number" min="0" max="100" step="any"></label>
+      <label>P₂O₅ % (optional) <input name="P2O5" type="number" min="0" max="100" step="any"></label>
+      <label>K₂O % (optional) <input name="K2O" type="number" min="0" max="100" step="any"></label>
+      <label>Pricing <select name="price_mode"><option value="price_kes_per_kg">KES per kg</option><option value="price_kes_per_bag">KES per bag</option><option value="total_cost_kes">Total cost for this product</option></select></label>
+      <label>Price or total (KES) <input name="price" type="number" min="0" step="any" required></label>
+      <label>Bag weight (kg; bag pricing only) <input name="bag_weight_kg" type="number" min="0.01" step="any" value="50"></label>
+    </div>
+    <button type="button" class="remove-product plot-secondary-button">Remove product</button>
+  </fieldset>
+</template>

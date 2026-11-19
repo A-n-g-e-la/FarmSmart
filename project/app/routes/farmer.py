@@ -205,8 +205,16 @@ def login():
 @farmer_bp.get("/home")
 @farmer_required
 def home():
+    if request.accept_mimetypes["text/html"] > request.accept_mimetypes["application/json"]:
+        return render_template("farmer/dashboard.html", farmer_name=None,
+                               logout_csrf_token=csrf_token("logout"), plot_options=PLOT_OPTIONS), 200, {"Cache-Control": "no-store"}
     return jsonify({"ok": True, "message": "Farmer authentication confirmed.",
                     "identity": g.farmer_identity, "csrf_token": csrf_token("logout")}), 200, {"Cache-Control": "no-store"}
+
+
+@farmer_bp.get("/login-page")
+def login_page():
+    return render_template("farmer/login.html"), 200, {"Cache-Control": "no-store"}
 
 
 @farmer_bp.post("/logout")

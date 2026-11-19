@@ -1,7 +1,7 @@
 import time
 from collections.abc import Mapping
 
-from flask import Blueprint, g, jsonify, request, session
+from flask import Blueprint, g, jsonify, render_template, request, session
 
 from app.security import csrf_token, officer_required, valid_csrf
 from app.services.officer_authentication_service import authenticate_officer
@@ -21,8 +21,20 @@ def officer_cache_control(response):
 @officer_bp.get("/dashboard")
 @officer_required
 def dashboard():
+    if request.accept_mimetypes["text/html"] > request.accept_mimetypes["application/json"]:
+        return render_template("officer/landing.html")
     result = get_assigned_farmers(g.officer_identity["agricultural_officer_id"])
     return jsonify(result), 200 if result["ok"] else 503
+
+
+@officer_bp.get("/register-page")
+def registration_page():
+    return render_template("officer/register.html")
+
+
+@officer_bp.get("/login-page")
+def login_page():
+    return render_template("officer/login.html")
 
 
 @officer_bp.get("/api/farmers")

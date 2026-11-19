@@ -1,0 +1,11 @@
+.plans-card { grid-column: 1 / -1; }
+.plan-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:1rem; }
+.plan-grid label { display:flex; flex-direction:column; gap:.4rem; }
+.plan-grid input,.plan-grid select,#saved-plan { padding:.65rem; border:1px solid #b8c5b8; border-radius:6px; font:inherit; max-width:100%; }
+.plan-product { padding:1rem; margin:1rem 0; border:1px solid #b8c5b8; border-radius:8px; }
+.plans-card button { margin:.6rem .4rem .6rem 0; }
+.scenario-card { border:1px solid #b8c5b8; border-radius:8px; padding:1rem; margin:1rem 0; }
+.scenario-card dl { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:.6rem; }
+.scenario-card dt { font-weight:600; }
+.scenario-card dd { margin:.2rem 0; }
+[hidden] { display:none !important; }
