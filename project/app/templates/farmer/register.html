@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create a Farmer Account | FarmAdvis</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/registration.css') }}">
+  <script src="{{ url_for('static', filename='javascript/registration.js') }}" defer></script>
+</head>
+<body>
+  <header class="site-header"><a class="brand" href="{{ url_for('farmer.registration_form') }}"><span class="brand-mark" aria-hidden="true">FA</span>FarmAdvis</a><span class="county">Uasin Gishu, Kenya</span></header>
+  <main class="registration-layout">
+    <section class="introduction" aria-labelledby="intro-title">
+      <p class="eyebrow">For maize farmers</p>
+      <h1 id="intro-title">Better decisions.<br>Stronger harvests.</h1>
+      <p>Create your farmer account as the first step toward maize advice for your farm.</p>
+      <div class="intro-note"><span class="note-line" aria-hidden="true"></span><p>Your farm. Your next season.<br><strong>Start with the essentials.</strong></p></div>
+    </section>
+    <section class="form-card" aria-labelledby="form-title">
+      <p class="eyebrow">Farmer registration</p>
+      <h2 id="form-title">Create your account</h2>
+      <p class="form-intro">Enter your details below. Fields marked <span aria-hidden="true">*</span> are required.</p>
+      {% for category, message in get_flashed_messages(with_categories=true) %}
+      <div class="notice success" role="status">{{ message }}</div>
+      {% endfor %}
+      {% if errors %}
+      <div class="notice error-summary" role="alert" tabindex="-1" id="error-summary">
+        {% if errors.get('request') %}{{ errors['request'] }}{% else %}Please check the highlighted fields and enter your passwords again.{% endif %}
+      </div>
+      {% endif %}
+      {% macro text_field(name, label, placeholder, autocomplete, maxlength, required=true, type='text', hint='') %}
+      <div class="field">
+        <label for="{{ name }}">{{ label }}{% if required %} <span aria-hidden="true">*</span>{% else %} <span class="optional">(optional)</span>{% endif %}</label>
+        <input id="{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ values.get(name, '') }}" placeholder="{{ placeholder }}" autocomplete="{{ autocomplete }}" maxlength="{{ maxlength }}" {% if required %}required{% endif %} {% if type == 'tel' %}inputmode="tel"{% endif %} {% if errors.get(name) %}aria-invalid="true"{% endif %} {% if hint or errors.get(name) %}aria-describedby="{% if hint %}{{ name }}-hint {% endif %}{% if errors.get(name) %}{{ name }}-error{% endif %}"{% endif %}>
+        {% if hint %}<p class="hint" id="{{ name }}-hint">{{ hint }}</p>{% endif %}
+        {% if errors.get(name) %}<p class="field-error" id="{{ name }}-error">{{ errors[name] }}</p>{% endif %}
+      </div>
+      {% endmacro %}
+      <form method="post" action="{{ url_for('farmer.registration_form') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="name-fields">
+          {{ text_field('first_name', 'First name', 'e.g. Amina', 'given-name', 100) }}
+          {{ text_field('last_name', 'Last name', 'e.g. Kiptoo', 'family-name', 100) }}
+        </div>
+        {{ text_field('phone_number', 'Kenyan mobile number', 'e.g. 0712 345 678', 'tel', 40, type='tel', hint='Use a Kenyan mobile number starting with 07, 01, or +254.') }}
+        {{ text_field('location', 'Location', 'e.g. Moiben, Uasin Gishu', 'address-level2', 150, required=false) }}
+        {% for name, label in [('password', 'Password'), ('password_confirmation', 'Confirm password')] %}
+        <div class="field">
+          <label for="{{ name }}">{{ label }} <span aria-hidden="true">*</span></label>
+          <div class="password-control">
+            {# Password inputs deliberately have no value attribute or submitted value. #}
+            <input id="{{ name }}" name="{{ name }}" type="password" autocomplete="new-password" minlength="8" maxlength="1024" required {% if errors.get(name) %}aria-invalid="true"{% endif %} aria-describedby="{{ name }}-hint{% if errors.get(name) %} {{ name }}-error{% endif %}">
+            <button class="password-toggle" type="button" data-password-target="{{ name }}" aria-controls="{{ name }}" aria-label="Show {{ label|lower }}" aria-pressed="false" hidden>Show</button>
+          </div>
+          <p class="hint" id="{{ name }}-hint">{% if name == 'password' %}Use at least 8 characters.{% else %}Enter the same password again.{% endif %}</p>
+          {% if errors.get(name) %}<p class="field-error" id="{{ name }}-error">{{ errors[name] }}</p>{% endif %}
+        </div>
+        {% endfor %}
+        <button class="submit-button" type="submit">Create Farmer Account <span aria-hidden="true">&rarr;</span></button>
+        <p class="form-footer">Your password is stored securely. Creating an account does not log you in.</p>
+      </form>
+    </section>
+  </main>
+  <footer class="site-footer">FarmAdvis &middot; Supporting maize farmers in Uasin Gishu</footer>
+</body>
+</html>
