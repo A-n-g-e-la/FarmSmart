@@ -5,6 +5,7 @@ from functools import wraps
 from flask import current_app, g, jsonify, session
 
 from app.services.authentication_service import get_active_farmer_identity
+from app.services.officer_authentication_service import get_active_officer_identity
 
 
 def csrf_token(scope):
@@ -53,5 +54,33 @@ def farmer_required(view):
             session.clear()
             return jsonify({"ok": False, "code": "unauthenticated", "message": "Please log in."}), 401
         g.farmer_identity = result["identity"]
+        return view(*args, **kwargs)
+    return protected
+
+
+def officer_required(view):
+    @wraps(view)
+    def protected(*args, **kwargs):
+        user_id = session.get("user_id")
+        officer_id = session.get("agricultural_officer_id")
+        issued = session.get("authenticated_at")
+        lifetime = current_app.permanent_session_lifetime.total_seconds()
+        valid_identity = (
+            type(user_id) is int and user_id > 0
+            and type(officer_id) is int and officer_id > 0
+            and "farmer_id" not in session
+            and type(issued) in (int, float)
+            and 0 <= time.time() - issued < lifetime
+        )
+        if not valid_identity:
+            session.clear()
+            return jsonify({"ok": False, "code": "unauthenticated", "message": "Please log in."}), 401
+        result = get_active_officer_identity(user_id, officer_id)
+        if not result["ok"]:
+            if result["code"] == "authentication_error":
+                return jsonify({"ok": False, "code": "authentication_error", "message": "Authentication could not be completed. Try again later."}), 503
+            session.clear()
+            return jsonify({"ok": False, "code": "unauthenticated", "message": "Please log in."}), 401
+        g.officer_identity = result["identity"]
         return view(*args, **kwargs)
     return protected

@@ -16,3 +16,18 @@ def create_farmer_user(cursor, first_name, last_name, phone_number, password_has
         (first_name, last_name, phone_number, password_hash),
     )
     return cursor.lastrowid
+
+
+def email_exists(cursor, email):
+    cursor.execute("SELECT user_id FROM users WHERE email = %s LIMIT 1", (email,))
+    return cursor.fetchone() is not None
+
+
+def create_officer_user(cursor, first_name, last_name, email, password_hash):
+    cursor.execute(
+        "INSERT INTO users "
+        "(first_name, last_name, email, password_hash, role, status) "
+        "VALUES (%s, %s, %s, %s, 'officer', 'pending')",
+        (first_name, last_name, email, password_hash),
+    )
+    return cursor.lastrowid
