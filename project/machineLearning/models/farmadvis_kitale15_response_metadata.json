@@ -1,0 +1,126 @@
+{
+  "component": "fertilizer_yield_response",
+  "model_type": "fixed_scale_exponential_with_pairwise_interactions",
+  "site_year": "Kitale15",
+  "training_rows": 114,
+  "distinct_npk_treatments": 16,
+  "input_features": [
+    "N",
+    "P",
+    "K",
+    "Variety"
+  ],
+  "input_units": {
+    "N": "kg/ha (verify fertilizer chemical basis)",
+    "P": "kg/ha (verify fertilizer chemical basis)",
+    "K": "kg/ha (verify fertilizer chemical basis)",
+    "Variety": "category"
+  },
+  "supported_varieties": [
+    "623A",
+    "HAC"
+  ],
+  "supported_npk_combinations": [
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      15.0,
+      0.0
+    ],
+    [
+      30.0,
+      0.0,
+      0.0
+    ],
+    [
+      30.0,
+      15.0,
+      0.0
+    ],
+    [
+      60.0,
+      0.0,
+      0.0
+    ],
+    [
+      60.0,
+      15.0,
+      0.0
+    ],
+    [
+      60.0,
+      15.0,
+      20.0
+    ],
+    [
+      90.0,
+      0.0,
+      0.0
+    ],
+    [
+      90.0,
+      7.5,
+      0.0
+    ],
+    [
+      90.0,
+      15.0,
+      0.0
+    ],
+    [
+      90.0,
+      15.0,
+      10.0
+    ],
+    [
+      90.0,
+      15.0,
+      20.0
+    ],
+    [
+      90.0,
+      15.0,
+      30.0
+    ],
+    [
+      90.0,
+      22.5,
+      0.0
+    ],
+    [
+      120.0,
+      0.0,
+      0.0
+    ],
+    [
+      120.0,
+      15.0,
+      0.0
+    ]
+  ],
+  "training_target": "GrainYld (Mg/ha) multiplied by 1000",
+  "response_definition": "model predicted yield at NPK minus model predicted yield at zero NPK for the same variety",
+  "output_unit": "kg/ha_increment_vs_zero_NPK",
+  "saturation_scales": {
+    "N": 60.0,
+    "P": 15.0,
+    "K": 30.0
+  },
+  "feature_order": [
+    "intercept",
+    "sat_N",
+    "sat_P",
+    "sat_K",
+    "variety_623A",
+    "N_x_P",
+    "N_x_K",
+    "P_x_K"
+  ],
+  "evaluation": "See separate fertilizer response evaluation notebook: five grouped and 15 leave-one-treatment-out evaluations.",
+  "limitations": "Site-year-specific; not a causal estimate, fertilizer recommendation, or validated forecast for new seasons.",
+  "scipy_version": "1.16.3"
+}

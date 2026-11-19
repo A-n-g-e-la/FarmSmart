@@ -1,0 +1,120 @@
+{
+  "component": "total_maize_yield",
+  "model_type": "XGBoostRegressor with ColumnTransformer preprocessing",
+  "site_year": "Kitale15",
+  "training_rows": 114,
+  "input_features": [
+    "N",
+    "P",
+    "K",
+    "Variety"
+  ],
+  "input_units": {
+    "N": "kg/ha (verify fertilizer chemical basis)",
+    "P": "kg/ha (verify fertilizer chemical basis)",
+    "K": "kg/ha (verify fertilizer chemical basis)",
+    "Variety": "category"
+  },
+  "supported_varieties": [
+    "623A",
+    "HAC"
+  ],
+  "observed_npk_combinations": [
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      15.0,
+      0.0
+    ],
+    [
+      30.0,
+      0.0,
+      0.0
+    ],
+    [
+      30.0,
+      15.0,
+      0.0
+    ],
+    [
+      60.0,
+      0.0,
+      0.0
+    ],
+    [
+      60.0,
+      15.0,
+      0.0
+    ],
+    [
+      60.0,
+      15.0,
+      20.0
+    ],
+    [
+      90.0,
+      0.0,
+      0.0
+    ],
+    [
+      90.0,
+      7.5,
+      0.0
+    ],
+    [
+      90.0,
+      15.0,
+      0.0
+    ],
+    [
+      90.0,
+      15.0,
+      10.0
+    ],
+    [
+      90.0,
+      15.0,
+      20.0
+    ],
+    [
+      90.0,
+      15.0,
+      30.0
+    ],
+    [
+      90.0,
+      22.5,
+      0.0
+    ],
+    [
+      120.0,
+      0.0,
+      0.0
+    ],
+    [
+      120.0,
+      15.0,
+      0.0
+    ]
+  ],
+  "target": "yield_kg_ha",
+  "target_conversion": "GrainYld (Mg/ha) multiplied by 1000",
+  "output_unit": "kg/ha",
+  "hyperparameters": {
+    "n_estimators": 100,
+    "max_depth": 2,
+    "learning_rate": 0.03,
+    "min_child_weight": 3,
+    "random_state": 42
+  },
+  "evaluation": "See separate yield evaluation notebook: five grouped and five random 80/20 splits.",
+  "limitations": "Kitale15 only; no validation across seasons or locations. Independently fitted from fertilizer response model.",
+  "versions": {
+    "scikit_learn": "1.6.1",
+    "xgboost": "3.4.1"
+  }
+}
