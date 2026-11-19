@@ -3,6 +3,7 @@ import secrets
 from flask import Flask
 from app.config import Config
 from app.routes.farmer import farmer_bp
+from app.routes.agricultural_plans import plans_bp
 
 def create_app():
     app = Flask(__name__)
@@ -14,5 +15,6 @@ def create_app():
 
     # Register farmer registration, backend login, protected home, and logout routes.
     app.register_blueprint(farmer_bp)
+    app.register_blueprint(plans_bp)
 
     return app
